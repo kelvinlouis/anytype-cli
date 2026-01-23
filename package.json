@@ -1,0 +1,31 @@
+{
+  "name": "@anytype/cli",
+  "version": "1.0.0",
+  "description": "CLI tool for interacting with Anytype objects",
+  "main": "./dist/index.js",
+  "type": "module",
+  "bin": {
+    "anytype": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --outDir dist --dts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "dev": "node --loader ts-node/esm src/index.ts"
+  },
+  "keywords": ["anytype", "cli", "knowledge-base"],
+  "author": "Anytype",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.2",
+    "conf": "^15.0.2",
+    "marked": "^17.0.1"
+  }
+}
