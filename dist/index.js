@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/index.ts
-import { Command as Command2 } from "commander";
+import { Command as Command9 } from "commander";
 
 // src/cli/commands/init.ts
 import { Command } from "commander";
@@ -34,6 +34,12 @@ var ConnectionError = class extends CLIError {
   constructor(message, cause) {
     super(message, EXIT_CODES.CONNECTION_ERROR, void 0, cause);
     this.name = "ConnectionError";
+  }
+};
+var NotFoundError = class extends CLIError {
+  constructor(message, cause) {
+    super(message, EXIT_CODES.NOT_FOUND, void 0, cause);
+    this.name = "NotFoundError";
   }
 };
 var ValidationError = class extends CLIError {
@@ -347,16 +353,556 @@ async function initAction(options) {
   console.log("  anytype types");
 }
 
+// src/cli/commands/types.ts
+import { Command as Command2 } from "commander";
+
+// src/cli/output.ts
+function formatAsJson(data) {
+  return JSON.stringify(data, null, 2);
+}
+function formatTypesAsMarkdown(types) {
+  if (types.length === 0) {
+    return "No types found.";
+  }
+  const lines = [];
+  lines.push("| Type Name | Type Key | Property Count |");
+  lines.push("|-----------|----------|----------------|");
+  for (const type of types) {
+    const propCount = Object.keys(type.properties || {}).length;
+    lines.push(`| ${type.name} | \`${type.key}\` | ${propCount} |`);
+  }
+  return lines.join("\n");
+}
+function formatObjectsAsMarkdown(objects, fields) {
+  if (objects.length === 0) {
+    return "No objects found.";
+  }
+  const displayFields = fields || ["name", "id", "updated_at"];
+  const headers = displayFields.map((f) => {
+    return f.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  });
+  const lines = [];
+  lines.push(`| ${headers.join(" | ")} |`);
+  lines.push(`|${headers.map(() => "---------").join("|")}|`);
+  for (const obj of objects) {
+    const row = displayFields.map((field) => {
+      const value = obj[field];
+      if (value === void 0 || value === null) {
+        return "-";
+      }
+      if (typeof value === "string") {
+        return value.length > 30 ? value.substring(0, 27) + "..." : value;
+      }
+      return String(value);
+    });
+    lines.push(`| ${row.join(" | ")} |`);
+  }
+  return lines.join("\n");
+}
+function formatObjectAsText(obj) {
+  const lines = [];
+  lines.push(`# ${obj.name}`);
+  lines.push("");
+  lines.push(`**ID:** \`${obj.id}\``);
+  lines.push(`**Type:** ${obj.type_key}`);
+  if (obj.icon) {
+    lines.push(`**Icon:** ${obj.icon}`);
+  }
+  if (obj.created_at) {
+    lines.push(`**Created:** ${new Date(obj.created_at).toLocaleDateString()}`);
+  }
+  if (obj.updated_at) {
+    lines.push(
+      `**Updated:** ${new Date(obj.updated_at).toLocaleDateString()}`
+    );
+  }
+  if (obj.properties && Object.keys(obj.properties).length > 0) {
+    lines.push("");
+    lines.push("## Properties");
+    for (const [key, value] of Object.entries(obj.properties)) {
+      if (value !== null && value !== void 0) {
+        lines.push(`- **${key}:** ${String(value)}`);
+      }
+    }
+  }
+  if (obj.body && obj.body.trim()) {
+    lines.push("");
+    lines.push("## Body");
+    lines.push("");
+    lines.push(obj.body);
+  }
+  return lines.join("\n");
+}
+function formatSearchResultsAsMarkdown(results) {
+  if (results.length === 0) {
+    return "No results found.";
+  }
+  const lines = [];
+  for (const result of results) {
+    lines.push(`- **${result.name}** (\`${result.id}\`)`);
+    if (result.snippet) {
+      lines.push(`  > ${result.snippet.substring(0, 80)}...`);
+    }
+    if (result.type_key) {
+      lines.push(`  *Type: ${result.type_key}*`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// src/cli/commands/types.ts
+function createTypesCommand() {
+  const command = new Command2("types").description("List all object types in the default space").option("--json", "Output as JSON instead of markdown").action(async (options) => {
+    try {
+      await typesAction(options);
+    } catch (error) {
+      handleError(error, options.verbose);
+    }
+  });
+  return command;
+}
+async function typesAction(options) {
+  const apiKey = config.getApiKey();
+  if (!apiKey) {
+    throw new ConfigError(
+      "API key not configured. Run `anytype init` first."
+    );
+  }
+  const spaceId = config.getDefaultSpace();
+  if (!spaceId) {
+    throw new ConfigError(
+      "No default space configured. Run `anytype init` first."
+    );
+  }
+  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const types = await client.getTypes(spaceId);
+  if (options.json) {
+    console.log(formatAsJson(types));
+  } else {
+    console.log(formatTypesAsMarkdown(types));
+  }
+}
+
+// src/cli/commands/list.ts
+import { Command as Command3 } from "commander";
+function createListCommand() {
+  const command = new Command3("list").arguments("<type>").description("List objects of a given type").option("--linked-to <name>", "Filter by linked object name").option("--since <date>", 'Filter by date (ISO format or "today")').option("--limit <n>", "Limit number of results", "100").option("--fields <list>", "Select specific fields (comma-separated)").option("--orphan", "Show only orphan objects (no links)").option("--json", "Output as JSON instead of markdown").option("--verbose", "Show detailed output").action(async (type, options) => {
+    try {
+      await listAction(type, options);
+    } catch (error) {
+      handleError(error, options.verbose);
+    }
+  });
+  return command;
+}
+async function listAction(typeInput, options) {
+  const apiKey = config.getApiKey();
+  if (!apiKey) {
+    throw new ConfigError(
+      "API key not configured. Run `anytype init` first."
+    );
+  }
+  const spaceId = config.getDefaultSpace();
+  if (!spaceId) {
+    throw new ConfigError(
+      "No default space configured. Run `anytype init` first."
+    );
+  }
+  const typeKey = config.resolveAlias(typeInput);
+  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const limit = Math.min(parseInt(options.limit || "100", 10), 1e3);
+  let objects = await client.getObjects(spaceId, {
+    type_key: typeKey,
+    limit
+  });
+  if (options.since) {
+    const sinceDate = parseDateFilter(options.since);
+    objects = objects.filter((obj) => {
+      if (!obj.updated_at) return false;
+      return new Date(obj.updated_at) >= sinceDate;
+    });
+  }
+  if (options.linkedTo) {
+  }
+  if (options.orphan) {
+    objects = objects.filter((obj) => {
+      const hasRelations = obj.properties && Object.keys(obj.properties).length === 0;
+      return hasRelations;
+    });
+  }
+  const fields = options.fields ? options.fields.split(",").map((f) => f.trim()) : void 0;
+  if (options.json) {
+    console.log(formatAsJson(objects));
+  } else {
+    console.log(formatObjectsAsMarkdown(objects, fields));
+  }
+}
+function parseDateFilter(dateStr) {
+  if (dateStr === "today") {
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }
+  const date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+  throw new ValidationError(`Invalid date format: ${dateStr}. Use ISO format (YYYY-MM-DD) or "today".`);
+}
+
+// src/cli/commands/get.ts
+import { Command as Command4 } from "commander";
+function createGetCommand() {
+  const command = new Command4("get").arguments("<type> <identifier>").description("Get full details of a single object by ID or name").option("--json", "Output as JSON instead of markdown").option("--verbose", "Show detailed output").action(async (type, identifier, options) => {
+    try {
+      await getAction(type, identifier, options);
+    } catch (error) {
+      handleError(error, options.verbose);
+    }
+  });
+  return command;
+}
+async function getAction(typeInput, identifier, options) {
+  const apiKey = config.getApiKey();
+  if (!apiKey) {
+    throw new ConfigError(
+      "API key not configured. Run `anytype init` first."
+    );
+  }
+  const spaceId = config.getDefaultSpace();
+  if (!spaceId) {
+    throw new ConfigError(
+      "No default space configured. Run `anytype init` first."
+    );
+  }
+  const typeKey = config.resolveAlias(typeInput);
+  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  let object;
+  try {
+    object = await client.getObject(spaceId, identifier);
+  } catch {
+    const objects = await client.getObjects(spaceId, {
+      type_key: typeKey,
+      limit: 100
+    });
+    object = objects.find((obj) => obj.name === identifier);
+    if (!object) {
+      throw new NotFoundError(
+        `Object "${identifier}" not found (type: ${typeInput})`
+      );
+    }
+  }
+  if (options.json) {
+    console.log(formatAsJson(object));
+  } else {
+    console.log(formatObjectAsText(object));
+  }
+}
+
+// src/cli/commands/search.ts
+import { Command as Command5 } from "commander";
+function createSearchCommand() {
+  const command = new Command5("search").arguments("<query>").description("Search for objects across all types").option("--type <type>", "Filter by type key").option("--limit <n>", "Limit number of results", "20").option("--offset <n>", "Pagination offset", "0").option("--json", "Output as JSON instead of markdown").option("--verbose", "Show detailed output").action(async (query, options) => {
+    try {
+      await searchAction(query, options);
+    } catch (error) {
+      handleError(error, options.verbose);
+    }
+  });
+  return command;
+}
+async function searchAction(query, options) {
+  const apiKey = config.getApiKey();
+  if (!apiKey) {
+    throw new ConfigError(
+      "API key not configured. Run `anytype init` first."
+    );
+  }
+  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const limit = Math.min(parseInt(options.limit || "20", 10), 1e3);
+  const offset = Math.max(parseInt(options.offset || "0", 10), 0);
+  let typeKey;
+  if (options.type) {
+    typeKey = config.resolveAlias(options.type);
+  }
+  const results = await client.search(query, {
+    type_key: typeKey,
+    limit,
+    offset
+  });
+  if (options.json) {
+    console.log(formatAsJson(results));
+  } else {
+    console.log(formatSearchResultsAsMarkdown(results));
+  }
+}
+
+// src/cli/commands/create.ts
+import { Command as Command6 } from "commander";
+import { readFileSync } from "fs";
+async function readStdinIfAvailable() {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) {
+      resolve("");
+      return;
+    }
+    let data = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => {
+      resolve(data);
+    });
+    process.stdin.on("error", () => {
+      resolve("");
+    });
+  });
+}
+function createCreateCommand() {
+  const command = new Command6("create").arguments("<type> [name]").description("Create a new object").option("--body <md>", 'Markdown body content (use "-" to read from stdin)').option("--body-file <path>", "Read body from file").option("--property <key=value>", "Set object property (repeatable)", collect, []).option("--link-to <id>", "Link to another object by ID").option("--dry-run", "Preview without creating").option("--json", "Output as JSON instead of markdown").option("--verbose", "Show detailed output").action(async (type, name, options) => {
+    try {
+      await createAction(type, name, options);
+    } catch (error) {
+      handleError(error, options.verbose);
+    }
+  });
+  return command;
+}
+function collect(value, previous) {
+  const [key, val] = value.split("=");
+  if (!key || !val) {
+    throw new ValidationError("Properties must be in format key=value");
+  }
+  return previous.concat({ key, value: val });
+}
+async function createAction(typeInput, name, options) {
+  const apiKey = config.getApiKey();
+  if (!apiKey) {
+    throw new ConfigError(
+      "API key not configured. Run `anytype init` first."
+    );
+  }
+  const spaceId = config.getDefaultSpace();
+  if (!spaceId) {
+    throw new ConfigError(
+      "No default space configured. Run `anytype init` first."
+    );
+  }
+  const typeKey = config.resolveAlias(typeInput);
+  let body = options.body;
+  if (options.bodyFile) {
+    body = readFileSync(options.bodyFile, "utf-8");
+  } else if (body === "-") {
+    body = await readStdinIfAvailable();
+  } else if (!body && !options.bodyFile) {
+    const stdinData = await readStdinIfAvailable();
+    if (stdinData) {
+      body = stdinData;
+    }
+  }
+  const properties = {};
+  for (const prop of options.property) {
+    properties[prop.key] = prop.value;
+  }
+  const data = {
+    name: name || `New ${typeInput}`,
+    type_key: typeKey,
+    body,
+    properties: Object.keys(properties).length > 0 ? properties : void 0
+  };
+  if (options.dryRun) {
+    console.log("Would create object with:");
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const createdObject = await client.createObject(spaceId, data);
+  if (options.linkTo) {
+    console.log(`Created object: ${createdObject.id}`);
+    console.log(`To link to ${options.linkTo}, use:`);
+    console.log(`  anytype update ${createdObject.id} --link-to ${options.linkTo}`);
+  } else {
+    if (options.json) {
+      console.log(formatAsJson(createdObject));
+    } else {
+      console.log(`\u2713 Created object: ${createdObject.id}`);
+      console.log(`  Name: ${createdObject.name}`);
+      console.log(`  Type: ${createdObject.type_key}`);
+    }
+  }
+}
+
+// src/cli/commands/update.ts
+import { Command as Command7 } from "commander";
+import { readFileSync as readFileSync2 } from "fs";
+async function readStdinIfAvailable2() {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) {
+      resolve("");
+      return;
+    }
+    let data = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => {
+      resolve(data);
+    });
+    process.stdin.on("error", () => {
+      resolve("");
+    });
+  });
+}
+function createUpdateCommand() {
+  const command = new Command7("update").arguments("<identifier>").description("Update an existing object").option("--name <name>", "Rename object").option("--body <md>", 'Replace body content (use "-" to read from stdin)').option("--append <md>", "Append to body content").option("--body-file <path>", "Read body from file").option("--property <key=value>", "Update object property (repeatable)", collect2, []).option("--link-to <id>", "Link to another object by ID").option("--unlink-from <id>", "Remove link to object").option("--dry-run", "Preview without updating").option("--json", "Output as JSON instead of markdown").option("--verbose", "Show detailed output").action(async (identifier, options) => {
+    try {
+      await updateAction(identifier, options);
+    } catch (error) {
+      handleError(error, options.verbose);
+    }
+  });
+  return command;
+}
+function collect2(value, previous) {
+  const [key, val] = value.split("=");
+  if (!key || !val) {
+    throw new ValidationError("Properties must be in format key=value");
+  }
+  return previous.concat({ key, value: val });
+}
+async function updateAction(identifier, options) {
+  const apiKey = config.getApiKey();
+  if (!apiKey) {
+    throw new ConfigError(
+      "API key not configured. Run `anytype init` first."
+    );
+  }
+  const spaceId = config.getDefaultSpace();
+  if (!spaceId) {
+    throw new ConfigError(
+      "No default space configured. Run `anytype init` first."
+    );
+  }
+  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  let object;
+  try {
+    object = await client.getObject(spaceId, identifier);
+  } catch {
+    throw new NotFoundError(`Object "${identifier}" not found`);
+  }
+  const updateData = {};
+  if (options.name) {
+    updateData.name = options.name;
+  }
+  if (options.body) {
+    if (options.body === "-") {
+      updateData.body = await readStdinIfAvailable2();
+    } else {
+      updateData.body = options.body;
+    }
+  } else if (options.append) {
+    updateData.body = (object.body || "") + "\n" + options.append;
+  } else if (options.bodyFile) {
+    updateData.body = readFileSync2(options.bodyFile, "utf-8");
+  }
+  const properties = { ...object.properties };
+  for (const prop of options.property) {
+    properties[prop.key] = prop.value;
+  }
+  if (options.property.length > 0) {
+    updateData.properties = properties;
+  }
+  if (options.dryRun) {
+    console.log("Would update object with:");
+    console.log(JSON.stringify(updateData, null, 2));
+    if (options.linkTo) {
+      console.log(`
+Would also link to: ${options.linkTo}`);
+    }
+    if (options.unlinkFrom) {
+      console.log(`
+Would also unlink from: ${options.unlinkFrom}`);
+    }
+    return;
+  }
+  if (Object.keys(updateData).length > 0) {
+    const updated = await client.updateObject(spaceId, object.id, updateData);
+    if (options.json) {
+      console.log(formatAsJson(updated));
+    } else {
+      console.log(`\u2713 Updated object: ${updated.id}`);
+      if (options.name) console.log(`  Name: ${updated.name}`);
+      if (options.body || options.append || options.bodyFile) console.log(`  Body updated`);
+      if (options.property.length > 0) console.log(`  Properties updated`);
+    }
+  } else {
+    console.log(`No changes to apply`);
+  }
+}
+
+// src/cli/commands/alias.ts
+import { Command as Command8 } from "commander";
+function createAliasCommand() {
+  const command = new Command8("alias").description("Manage type aliases");
+  command.command("list").description("List all configured aliases").action(() => {
+    listAliases();
+  });
+  command.command("set <alias> <type_key>").description("Create or update an alias").action((alias, typeKey) => {
+    try {
+      setAlias(alias, typeKey);
+    } catch (error) {
+      handleError(error, false);
+    }
+  });
+  command.command("remove <alias>").description("Remove an alias").action((alias) => {
+    try {
+      removeAlias(alias);
+    } catch (error) {
+      handleError(error, false);
+    }
+  });
+  return command;
+}
+function listAliases() {
+  const aliases = config.getAliases();
+  if (Object.keys(aliases).length === 0) {
+    console.log("No aliases configured.");
+    return;
+  }
+  console.log("Configured aliases:\n");
+  const maxLen = Math.max(...Object.keys(aliases).map((k) => k.length));
+  for (const [alias, typeKey] of Object.entries(aliases)) {
+    console.log(`  ${alias.padEnd(maxLen)}  \u2192  ${typeKey}`);
+  }
+}
+function setAlias(alias, typeKey) {
+  config.addAlias(alias, typeKey);
+  console.log(`\u2713 Alias set: ${alias} \u2192 ${typeKey}`);
+}
+function removeAlias(alias) {
+  config.removeAlias(alias);
+  console.log(`\u2713 Alias removed: ${alias}`);
+}
+
 // src/index.ts
 var packageJson = {
   version: "1.0.0",
   description: "CLI tool for interacting with Anytype objects"
 };
-var program = new Command2();
+var program = new Command9();
 program.name("anytype").description(packageJson.description).version(packageJson.version, "-v, --version", "Output version number").option("--json", "Output as JSON instead of markdown", false).option("--verbose", "Show detailed output and errors", false).option("--no-color", "Disable colored output", false).option("--space <id>", "Override default space").option("--dry-run", "Preview changes without executing", false).hook("preAction", (thisCommand) => {
   const options = thisCommand.opts();
 });
 program.addCommand(createInitCommand());
+program.addCommand(createTypesCommand());
+program.addCommand(createListCommand());
+program.addCommand(createGetCommand());
+program.addCommand(createSearchCommand());
+program.addCommand(createCreateCommand());
+program.addCommand(createUpdateCommand());
+program.addCommand(createAliasCommand());
 program.parse(process.argv);
 if (!process.argv.slice(2).length) {
   program.outputHelp();

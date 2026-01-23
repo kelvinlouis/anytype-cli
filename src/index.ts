@@ -4,6 +4,13 @@ import { Command } from 'commander';
 import { config } from './config/index.js';
 import { handleError } from './utils/errors.js';
 import { createInitCommand } from './cli/commands/init.js';
+import { createTypesCommand } from './cli/commands/types.js';
+import { createListCommand } from './cli/commands/list.js';
+import { createGetCommand } from './cli/commands/get.js';
+import { createSearchCommand } from './cli/commands/search.js';
+import { createCreateCommand } from './cli/commands/create.js';
+import { createUpdateCommand } from './cli/commands/update.js';
+import { createAliasCommand } from './cli/commands/alias.js';
 
 const packageJson = {
   version: '1.0.0',
@@ -29,6 +36,13 @@ program
 
 // Add commands
 program.addCommand(createInitCommand());
+program.addCommand(createTypesCommand());
+program.addCommand(createListCommand());
+program.addCommand(createGetCommand());
+program.addCommand(createSearchCommand());
+program.addCommand(createCreateCommand());
+program.addCommand(createUpdateCommand());
+program.addCommand(createAliasCommand());
 
 // Parse arguments
 program.parse(process.argv);
