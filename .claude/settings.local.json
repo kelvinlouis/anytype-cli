@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:developers.anytype.io)"
+      "WebFetch(domain:developers.anytype.io)",
+      "Bash(npm run build:*)",
+      "Bash(node dist/index.js init:*)"
     ]
   }
 }

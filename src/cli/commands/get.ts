@@ -55,10 +55,10 @@ async function getAction(typeInput: string, identifier: string, options: GetOpti
   // Fetch object
   const client = new AnytypeClient(config.getBaseURL(), apiKey);
 
-  // Try to fetch by ID first
+  // Try to fetch by ID first (with markdown format to include body)
   let object;
   try {
-    object = await client.getObject(spaceId, identifier);
+    object = await client.getObject(spaceId, identifier, { format: 'markdown' });
   } catch {
     // If not found by ID, try to find by name
     const objects = await client.getObjects(spaceId, {
@@ -66,12 +66,15 @@ async function getAction(typeInput: string, identifier: string, options: GetOpti
       limit: 100,
     });
 
-    object = objects.find((obj) => obj.name === identifier);
-    if (!object) {
+    const found = objects.find((obj) => obj.name === identifier);
+    if (!found) {
       throw new NotFoundError(
         `Object "${identifier}" not found (type: ${typeInput})`
       );
     }
+
+    // Re-fetch with body content
+    object = await client.getObject(spaceId, found.id, { format: 'markdown' });
   }
 
   // Output results

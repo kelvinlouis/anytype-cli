@@ -130,30 +130,50 @@ var AnytypeClient = class {
    * Get all spaces
    */
   async getSpaces() {
-    return this.request("GET", "/v1/spaces");
+    const response = await this.request("GET", "/v1/spaces");
+    return response.data;
   }
   /**
    * Get all types in a space
    */
   async getTypes(spaceId) {
-    return this.request("GET", `/v1/spaces/${spaceId}/types`);
+    const response = await this.request("GET", `/v1/spaces/${spaceId}/types`);
+    return response.data;
   }
   /**
    * Get objects in a space with optional filtering
+   * Note: When filtering by type, uses the search endpoint as the objects
+   * endpoint doesn't support type filtering via query params
    */
   async getObjects(spaceId, filters) {
+    if (filters?.type_key) {
+      const queryParams2 = new URLSearchParams();
+      if (filters.limit) queryParams2.append("limit", String(filters.limit));
+      if (filters.offset) queryParams2.append("offset", String(filters.offset));
+      const endpoint2 = queryParams2.size > 0 ? `/v1/spaces/${spaceId}/search?${queryParams2}` : `/v1/spaces/${spaceId}/search`;
+      const body = {
+        query: "",
+        types: [filters.type_key]
+      };
+      const response2 = await this.request("POST", endpoint2, body);
+      return response2.data;
+    }
     const queryParams = new URLSearchParams();
-    if (filters?.type_key) queryParams.append("type_key", filters.type_key);
     if (filters?.limit) queryParams.append("limit", String(filters.limit));
     if (filters?.offset) queryParams.append("offset", String(filters.offset));
     const endpoint = queryParams.size > 0 ? `/v1/spaces/${spaceId}/objects?${queryParams}` : `/v1/spaces/${spaceId}/objects`;
-    return this.request("GET", endpoint);
+    const response = await this.request("GET", endpoint);
+    return response.data;
   }
   /**
    * Get a single object
    */
-  async getObject(spaceId, objectId) {
-    return this.request("GET", `/v1/spaces/${spaceId}/objects/${objectId}`);
+  async getObject(spaceId, objectId, options) {
+    const queryParams = new URLSearchParams();
+    if (options?.format) queryParams.append("format", options.format);
+    const endpoint = queryParams.size > 0 ? `/v1/spaces/${spaceId}/objects/${objectId}?${queryParams}` : `/v1/spaces/${spaceId}/objects/${objectId}`;
+    const response = await this.request("GET", endpoint);
+    return response.object;
   }
   /**
    * Create an object
@@ -182,11 +202,26 @@ var AnytypeClient = class {
    */
   async search(query, filters) {
     const queryParams = new URLSearchParams();
-    queryParams.append("query", query);
-    if (filters?.type_key) queryParams.append("type_key", filters.type_key);
     if (filters?.limit) queryParams.append("limit", String(filters.limit));
     if (filters?.offset) queryParams.append("offset", String(filters.offset));
-    return this.request("POST", `/v1/search?${queryParams}`);
+    const endpoint = queryParams.size > 0 ? `/v1/search?${queryParams}` : "/v1/search";
+    const body = { query };
+    if (filters?.type_key) body.types = [filters.type_key];
+    const response = await this.request("POST", endpoint, body);
+    return response.data;
+  }
+  /**
+   * Search within a specific space
+   */
+  async searchInSpace(spaceId, query, filters) {
+    const queryParams = new URLSearchParams();
+    if (filters?.limit) queryParams.append("limit", String(filters.limit));
+    if (filters?.offset) queryParams.append("offset", String(filters.offset));
+    const endpoint = queryParams.size > 0 ? `/v1/spaces/${spaceId}/search?${queryParams}` : `/v1/spaces/${spaceId}/search`;
+    const body = { query };
+    if (filters?.type_key) body.types = [filters.type_key];
+    const response = await this.request("POST", endpoint, body);
+    return response.data;
   }
 };
 
@@ -194,12 +229,29 @@ var AnytypeClient = class {
 import Conf from "conf";
 import { homedir } from "os";
 import { join } from "path";
+import { existsSync, unlinkSync } from "fs";
 var ConfigManager = class {
   constructor() {
-    this.conf = new Conf({
-      projectName: "anytype-cli",
-      configFileLocation: join(homedir(), ".anytype-cli", "config.json")
-    });
+    const configDir = join(homedir(), ".anytype-cli");
+    const configPath = join(configDir, "config.json");
+    try {
+      this.conf = new Conf({
+        projectName: "anytype-cli",
+        cwd: configDir
+      });
+    } catch (error) {
+      if (error instanceof SyntaxError && error.message.includes("JSON")) {
+        if (existsSync(configPath)) {
+          unlinkSync(configPath);
+        }
+        this.conf = new Conf({
+          projectName: "anytype-cli",
+          cwd: configDir
+        });
+      } else {
+        throw error;
+      }
+    }
   }
   /**
    * Get the entire config
@@ -360,6 +412,128 @@ import { Command as Command2 } from "commander";
 function formatAsJson(data) {
   return JSON.stringify(data, null, 2);
 }
+function formatIcon(icon) {
+  if (typeof icon === "string") {
+    return icon;
+  }
+  if (typeof icon === "object" && icon !== null) {
+    const iconObj = icon;
+    if (iconObj.emoji) {
+      return iconObj.emoji;
+    }
+    if (iconObj.file) {
+      return iconObj.file;
+    }
+    if (iconObj.url) {
+      return iconObj.url;
+    }
+    if (iconObj.name) {
+      return iconObj.name;
+    }
+  }
+  return "-";
+}
+function formatPropertyValue(prop) {
+  if (prop.object !== "property" || !prop.format || !prop.name) {
+    return null;
+  }
+  const name = prop.name;
+  const format = prop.format;
+  switch (format) {
+    case "date":
+      if (prop.date) {
+        const date = new Date(prop.date);
+        return { name, value: date.toLocaleDateString() };
+      }
+      return { name, value: "-" };
+    case "number":
+      if (prop.number !== void 0 && prop.number !== null) {
+        return { name, value: String(prop.number) };
+      }
+      return { name, value: "-" };
+    case "text":
+      if (prop.text) {
+        return { name, value: prop.text };
+      }
+      return { name, value: "-" };
+    case "select":
+      if (prop.select && typeof prop.select === "object") {
+        const select = prop.select;
+        return { name, value: select.name || select.key || "-" };
+      }
+      return { name, value: "-" };
+    case "multi_select":
+      if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
+        const tags = prop.multi_select.map(
+          (tag) => tag.name || tag.key
+        );
+        return { name, value: tags.join(", ") };
+      }
+      return { name, value: "-" };
+    case "objects":
+      if (Array.isArray(prop.objects) && prop.objects.length > 0) {
+        const count = prop.objects.length;
+        return { name, value: `${count} object${count > 1 ? "s" : ""}` };
+      }
+      return { name, value: "-" };
+    case "checkbox":
+      return { name, value: prop.checkbox ? "Yes" : "No" };
+    case "url":
+      if (prop.url) {
+        return { name, value: prop.url };
+      }
+      return { name, value: "-" };
+    case "email":
+      if (prop.email) {
+        return { name, value: prop.email };
+      }
+      return { name, value: "-" };
+    case "phone":
+      if (prop.phone) {
+        return { name, value: prop.phone };
+      }
+      return { name, value: "-" };
+    default:
+      return { name, value: "-" };
+  }
+}
+function formatValue(value, indent = 0) {
+  if (value === null) {
+    return "null";
+  }
+  if (value === void 0) {
+    return "undefined";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    if (value.every((v) => typeof v !== "object" || v === null)) {
+      return value.map((v) => formatValue(v)).join(", ");
+    }
+    const prefix = "  ".repeat(indent + 1);
+    return "\n" + value.map((v, i) => `${prefix}${i + 1}. ${formatValue(v, indent + 1)}`).join("\n");
+  }
+  if (typeof value === "object") {
+    const obj = value;
+    const keys = Object.keys(obj);
+    if (keys.length === 0) {
+      return "{}";
+    }
+    if (keys.length <= 3) {
+      const parts = keys.filter((k) => obj[k] !== void 0 && obj[k] !== null).map((k) => `${k}: ${formatValue(obj[k], indent + 1)}`);
+      return parts.join(", ");
+    }
+    return JSON.stringify(obj);
+  }
+  return String(value);
+}
 function formatTypesAsMarkdown(types) {
   if (types.length === 0) {
     return "No types found.";
@@ -390,10 +564,9 @@ function formatObjectsAsMarkdown(objects, fields) {
       if (value === void 0 || value === null) {
         return "-";
       }
-      if (typeof value === "string") {
-        return value.length > 30 ? value.substring(0, 27) + "..." : value;
-      }
-      return String(value);
+      const formatted = formatValue(value);
+      const singleLine = formatted.replace(/\n/g, " ").trim();
+      return singleLine.length > 30 ? singleLine.substring(0, 27) + "..." : singleLine;
     });
     lines.push(`| ${row.join(" | ")} |`);
   }
@@ -404,9 +577,9 @@ function formatObjectAsText(obj) {
   lines.push(`# ${obj.name}`);
   lines.push("");
   lines.push(`**ID:** \`${obj.id}\``);
-  lines.push(`**Type:** ${obj.type_key}`);
+  lines.push(`**Type:** ${obj.type?.key || obj.type_key}`);
   if (obj.icon) {
-    lines.push(`**Icon:** ${obj.icon}`);
+    lines.push(`**Icon:** ${formatIcon(obj.icon)}`);
   }
   if (obj.created_at) {
     lines.push(`**Created:** ${new Date(obj.created_at).toLocaleDateString()}`);
@@ -416,20 +589,21 @@ function formatObjectAsText(obj) {
       `**Updated:** ${new Date(obj.updated_at).toLocaleDateString()}`
     );
   }
-  if (obj.properties && Object.keys(obj.properties).length > 0) {
+  if (obj.properties && obj.properties.length > 0) {
     lines.push("");
     lines.push("## Properties");
-    for (const [key, value] of Object.entries(obj.properties)) {
-      if (value !== null && value !== void 0) {
-        lines.push(`- **${key}:** ${String(value)}`);
+    for (const prop of obj.properties) {
+      const formatted = formatPropertyValue(prop);
+      if (formatted) {
+        lines.push(`- **${formatted.name}:** ${formatted.value}`);
       }
     }
   }
-  if (obj.body && obj.body.trim()) {
+  if (obj.markdown && obj.markdown.trim()) {
     lines.push("");
-    lines.push("## Body");
+    lines.push("## Content");
     lines.push("");
-    lines.push(obj.body);
+    lines.push(obj.markdown);
   }
   return lines.join("\n");
 }
@@ -523,11 +697,58 @@ async function listAction(typeInput, options) {
     });
   }
   if (options.linkedTo) {
+    const searchResults = await client.search(options.linkedTo, { limit: 10 });
+    const targetResult = searchResults.find(
+      (r) => r.name.toLowerCase() === options.linkedTo.toLowerCase()
+    ) || searchResults[0];
+    if (!targetResult) {
+      throw new ValidationError(`No object found matching "${options.linkedTo}"`);
+    }
+    const targetId = targetResult.id;
+    const targetBacklinks = /* @__PURE__ */ new Set();
+    const backlinksProperty = targetResult.properties?.find(
+      (p) => p.key === "backlinks"
+    );
+    if (backlinksProperty?.objects) {
+      for (const id of backlinksProperty.objects) {
+        targetBacklinks.add(id);
+      }
+    }
+    const mentionResults = await client.searchInSpace(spaceId, options.linkedTo, {
+      type_key: typeKey,
+      limit
+    });
+    const mentionIds = new Set(mentionResults.map((r) => r.id));
+    objects = objects.filter((obj) => {
+      if (mentionIds.has(obj.id)) {
+        return true;
+      }
+      if (targetBacklinks.has(obj.id)) {
+        return true;
+      }
+      const linksProperty = obj.properties?.find(
+        (p) => p.key === "links"
+      );
+      if (linksProperty?.objects?.includes(targetId)) {
+        return true;
+      }
+      return false;
+    });
+    if (options.verbose) {
+      console.error(`[DEBUG] Objects after filter: ${objects.length}`);
+    }
   }
   if (options.orphan) {
     objects = objects.filter((obj) => {
-      const hasRelations = obj.properties && Object.keys(obj.properties).length === 0;
-      return hasRelations;
+      const linksProperty = obj.properties?.find(
+        (p) => p.key === "links"
+      );
+      const backlinksProperty = obj.properties?.find(
+        (p) => p.key === "backlinks"
+      );
+      const hasLinks = (linksProperty?.objects?.length || 0) > 0;
+      const hasBacklinks = (backlinksProperty?.objects?.length || 0) > 0;
+      return !hasLinks && !hasBacklinks;
     });
   }
   const fields = options.fields ? options.fields.split(",").map((f) => f.trim()) : void 0;
@@ -579,18 +800,19 @@ async function getAction(typeInput, identifier, options) {
   const client = new AnytypeClient(config.getBaseURL(), apiKey);
   let object;
   try {
-    object = await client.getObject(spaceId, identifier);
+    object = await client.getObject(spaceId, identifier, { format: "markdown" });
   } catch {
     const objects = await client.getObjects(spaceId, {
       type_key: typeKey,
       limit: 100
     });
-    object = objects.find((obj) => obj.name === identifier);
-    if (!object) {
+    const found = objects.find((obj) => obj.name === identifier);
+    if (!found) {
       throw new NotFoundError(
         `Object "${identifier}" not found (type: ${typeInput})`
       );
     }
+    object = await client.getObject(spaceId, found.id, { format: "markdown" });
   }
   if (options.json) {
     console.log(formatAsJson(object));
@@ -892,7 +1114,7 @@ var packageJson = {
   description: "CLI tool for interacting with Anytype objects"
 };
 var program = new Command9();
-program.name("anytype").description(packageJson.description).version(packageJson.version, "-v, --version", "Output version number").option("--json", "Output as JSON instead of markdown", false).option("--verbose", "Show detailed output and errors", false).option("--no-color", "Disable colored output", false).option("--space <id>", "Override default space").option("--dry-run", "Preview changes without executing", false).hook("preAction", (thisCommand) => {
+program.name("anytype").description(packageJson.description).version(packageJson.version, "-v, --version", "Output version number").option("--verbose", "Show detailed output and errors", false).option("--no-color", "Disable colored output", false).option("--space <id>", "Override default space").option("--dry-run", "Preview changes without executing", false).hook("preAction", (thisCommand) => {
   const options = thisCommand.opts();
 });
 program.addCommand(createInitCommand());

@@ -81,17 +81,79 @@ async function listAction(typeInput: string, options: ListOptions): Promise<void
   }
 
   if (options.linkedTo) {
-    // Filter by linked object name (simplified - would need full relation info)
-    // This is a placeholder for the actual relation filtering logic
-    // In a real implementation, this would need to check the relations property
+    // Find the target object by name
+    const searchResults = await client.search(options.linkedTo, { limit: 10 });
+
+    // Find exact or best match
+    const targetResult = searchResults.find(
+      (r) => r.name.toLowerCase() === options.linkedTo!.toLowerCase()
+    ) || searchResults[0];
+
+    if (!targetResult) {
+      throw new ValidationError(`No object found matching "${options.linkedTo}"`);
+    }
+
+    const targetId = targetResult.id;
+
+    // Get IDs from backlinks on the target object (objects that link TO the target)
+    const targetBacklinks = new Set<string>();
+    const backlinksProperty = targetResult.properties?.find(
+      (p: { key: string }) => p.key === 'backlinks'
+    );
+    if (backlinksProperty?.objects) {
+      for (const id of backlinksProperty.objects) {
+        targetBacklinks.add(id);
+      }
+    }
+
+    // Also search for objects that mention the target name in their content
+    const mentionResults = await client.searchInSpace(spaceId, options.linkedTo, {
+      type_key: typeKey,
+      limit,
+    });
+    const mentionIds = new Set(mentionResults.map((r) => r.id));
+
+    // Filter objects that are linked to/from the target OR mention the target name
+    objects = objects.filter((obj) => {
+      // Check if this object mentions the target name in content
+      if (mentionIds.has(obj.id)) {
+        return true;
+      }
+
+      // Check if this object is in the target's backlinks
+      // (meaning this object links TO the target)
+      if (targetBacklinks.has(obj.id)) {
+        return true;
+      }
+
+      // Check if this object has a 'links' property that includes the target
+      const linksProperty = obj.properties?.find(
+        (p: { key: string }) => p.key === 'links'
+      );
+      if (linksProperty?.objects?.includes(targetId)) {
+        return true;
+      }
+
+      return false;
+    });
+
+    if (options.verbose) {
+      console.error(`[DEBUG] Objects after filter: ${objects.length}`);
+    }
   }
 
   if (options.orphan) {
-    // Filter for orphan objects (no links, no backlinks)
-    // This would need to check if object has any relations
+    // Filter for orphan objects (no links and no backlinks)
     objects = objects.filter((obj) => {
-      const hasRelations = obj.properties && Object.keys(obj.properties).length === 0;
-      return hasRelations;
+      const linksProperty = obj.properties?.find(
+        (p: { key: string }) => p.key === 'links'
+      );
+      const backlinksProperty = obj.properties?.find(
+        (p: { key: string }) => p.key === 'backlinks'
+      );
+      const hasLinks = (linksProperty?.objects?.length || 0) > 0;
+      const hasBacklinks = (backlinksProperty?.objects?.length || 0) > 0;
+      return !hasLinks && !hasBacklinks;
     });
   }
 

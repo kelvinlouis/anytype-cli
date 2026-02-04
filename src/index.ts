@@ -23,7 +23,6 @@ program
   .name('anytype')
   .description(packageJson.description)
   .version(packageJson.version, '-v, --version', 'Output version number')
-  .option('--json', 'Output as JSON instead of markdown', false)
   .option('--verbose', 'Show detailed output and errors', false)
   .option('--no-color', 'Disable colored output', false)
   .option('--space <id>', 'Override default space')

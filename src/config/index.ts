@@ -1,6 +1,7 @@
 import Conf from 'conf';
 import { homedir } from 'os';
 import { join } from 'path';
+import { existsSync, unlinkSync } from 'fs';
 
 /**
  * Configuration schema
@@ -19,11 +20,33 @@ class ConfigManager {
   private conf: Conf<ConfigSchema>;
 
   constructor() {
-    // Create config in ~/.anytype-cli/config.json
-    this.conf = new Conf<ConfigSchema>({
-      projectName: 'anytype-cli',
-      configFileLocation: join(homedir(), '.anytype-cli', 'config.json'),
-    });
+    const configDir = join(homedir(), '.anytype-cli');
+    const configPath = join(configDir, 'config.json');
+
+    try {
+      // Create config in ~/.anytype-cli/config.json
+      this.conf = new Conf<ConfigSchema>({
+        projectName: 'anytype-cli',
+        cwd: configDir,
+      });
+    } catch (error) {
+      // Handle corrupted config file (e.g., empty JSON)
+      if (
+        error instanceof SyntaxError &&
+        error.message.includes('JSON')
+      ) {
+        // Delete corrupted config file and retry
+        if (existsSync(configPath)) {
+          unlinkSync(configPath);
+        }
+        this.conf = new Conf<ConfigSchema>({
+          projectName: 'anytype-cli',
+          cwd: configDir,
+        });
+      } else {
+        throw error;
+      }
+    }
   }
 
   /**

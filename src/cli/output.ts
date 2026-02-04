@@ -8,6 +8,164 @@ export function formatAsJson(data: unknown): string {
 }
 
 /**
+ * Format an icon for display
+ */
+function formatIcon(icon: unknown): string {
+  if (typeof icon === 'string') {
+    return icon;
+  }
+  if (typeof icon === 'object' && icon !== null) {
+    const iconObj = icon as Record<string, unknown>;
+    // Handle different icon formats
+    if (iconObj.emoji) {
+      return iconObj.emoji as string;
+    }
+    if (iconObj.file) {
+      return iconObj.file as string;
+    }
+    if (iconObj.url) {
+      return iconObj.url as string;
+    }
+    if (iconObj.name) {
+      return iconObj.name as string;
+    }
+  }
+  return '-';
+}
+
+/**
+ * Format an Anytype property value based on its format type.
+ * Returns an object with the property name and formatted value.
+ */
+function formatPropertyValue(prop: Record<string, unknown>): { name: string; value: string } | null {
+  if (prop.object !== 'property' || !prop.format || !prop.name) {
+    return null;
+  }
+
+  const name = prop.name as string;
+  const format = prop.format as string;
+
+  switch (format) {
+    case 'date':
+      if (prop.date) {
+        const date = new Date(prop.date as string);
+        return { name, value: date.toLocaleDateString() };
+      }
+      return { name, value: '-' };
+
+    case 'number':
+      if (prop.number !== undefined && prop.number !== null) {
+        return { name, value: String(prop.number) };
+      }
+      return { name, value: '-' };
+
+    case 'text':
+      if (prop.text) {
+        return { name, value: prop.text as string };
+      }
+      return { name, value: '-' };
+
+    case 'select':
+      if (prop.select && typeof prop.select === 'object') {
+        const select = prop.select as Record<string, unknown>;
+        return { name, value: (select.name as string) || (select.key as string) || '-' };
+      }
+      return { name, value: '-' };
+
+    case 'multi_select':
+      if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
+        const tags = prop.multi_select.map((tag: Record<string, unknown>) =>
+          (tag.name as string) || (tag.key as string)
+        );
+        return { name, value: tags.join(', ') };
+      }
+      return { name, value: '-' };
+
+    case 'objects':
+      if (Array.isArray(prop.objects) && prop.objects.length > 0) {
+        const count = prop.objects.length;
+        return { name, value: `${count} object${count > 1 ? 's' : ''}` };
+      }
+      return { name, value: '-' };
+
+    case 'checkbox':
+      return { name, value: prop.checkbox ? 'Yes' : 'No' };
+
+    case 'url':
+      if (prop.url) {
+        return { name, value: prop.url as string };
+      }
+      return { name, value: '-' };
+
+    case 'email':
+      if (prop.email) {
+        return { name, value: prop.email as string };
+      }
+      return { name, value: '-' };
+
+    case 'phone':
+      if (prop.phone) {
+        return { name, value: prop.phone as string };
+      }
+      return { name, value: '-' };
+
+    default:
+      // Unknown format, try to extract something useful
+      return { name, value: '-' };
+  }
+}
+
+/**
+ * Format a value for human-readable text output
+ */
+function formatValue(value: unknown, indent = 0): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '[]';
+    }
+    // For simple arrays of primitives, join them
+    if (value.every((v) => typeof v !== 'object' || v === null)) {
+      return value.map((v) => formatValue(v)).join(', ');
+    }
+    // For arrays of objects, format each on a new line
+    const prefix = '  '.repeat(indent + 1);
+    return (
+      '\n' +
+      value.map((v, i) => `${prefix}${i + 1}. ${formatValue(v, indent + 1)}`).join('\n')
+    );
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length === 0) {
+      return '{}';
+    }
+    // For objects with just a few keys, show inline
+    if (keys.length <= 3) {
+      const parts = keys
+        .filter((k) => obj[k] !== undefined && obj[k] !== null)
+        .map((k) => `${k}: ${formatValue(obj[k], indent + 1)}`);
+      return parts.join(', ');
+    }
+    // For larger objects, use JSON but compact
+    return JSON.stringify(obj);
+  }
+  return String(value);
+}
+
+/**
  * Format types as markdown table
  */
 export function formatTypesAsMarkdown(types: ObjectType[]): string {
@@ -61,10 +219,10 @@ export function formatObjectsAsMarkdown(
       if (value === undefined || value === null) {
         return '-';
       }
-      if (typeof value === 'string') {
-        return value.length > 30 ? value.substring(0, 27) + '...' : value;
-      }
-      return String(value);
+      const formatted = formatValue(value);
+      // Truncate for table display and remove newlines
+      const singleLine = formatted.replace(/\n/g, ' ').trim();
+      return singleLine.length > 30 ? singleLine.substring(0, 27) + '...' : singleLine;
     });
     lines.push(`| ${row.join(' | ')} |`);
   }
@@ -81,10 +239,10 @@ export function formatObjectAsText(obj: AnyObject): string {
   lines.push(`# ${obj.name}`);
   lines.push('');
   lines.push(`**ID:** \`${obj.id}\``);
-  lines.push(`**Type:** ${obj.type_key}`);
+  lines.push(`**Type:** ${obj.type?.key || obj.type_key}`);
 
   if (obj.icon) {
-    lines.push(`**Icon:** ${obj.icon}`);
+    lines.push(`**Icon:** ${formatIcon(obj.icon)}`);
   }
 
   if (obj.created_at) {
@@ -97,21 +255,22 @@ export function formatObjectAsText(obj: AnyObject): string {
     );
   }
 
-  if (obj.properties && Object.keys(obj.properties).length > 0) {
+  if (obj.properties && obj.properties.length > 0) {
     lines.push('');
     lines.push('## Properties');
-    for (const [key, value] of Object.entries(obj.properties)) {
-      if (value !== null && value !== undefined) {
-        lines.push(`- **${key}:** ${String(value)}`);
+    for (const prop of obj.properties) {
+      const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>);
+      if (formatted) {
+        lines.push(`- **${formatted.name}:** ${formatted.value}`);
       }
     }
   }
 
-  if (obj.body && obj.body.trim()) {
+  if (obj.markdown && obj.markdown.trim()) {
     lines.push('');
-    lines.push('## Body');
+    lines.push('## Content');
     lines.push('');
-    lines.push(obj.body);
+    lines.push(obj.markdown);
   }
 
   return lines.join('\n');

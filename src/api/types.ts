@@ -39,18 +39,50 @@ export interface PropertyDefinition {
 }
 
 /**
+ * Property value from API
+ */
+export interface PropertyValue {
+  object: 'property';
+  id: string;
+  key: string;
+  name: string;
+  format: string;
+  // For format: "objects" (links, backlinks, etc.)
+  objects?: string[];
+  // For format: "text"
+  text?: string;
+  // For format: "number"
+  number?: number;
+  // For format: "date"
+  date?: string;
+  // For format: "select"
+  select?: { id: string; key: string; name: string; color?: string };
+  // For format: "multi_select"
+  multi_select?: { id: string; key: string; name: string; color?: string }[];
+}
+
+/**
  * Object from /v1/spaces/{space_id}/objects
  */
 export interface AnyObject {
   id: string;
   name: string;
-  icon?: string;
-  type_key: string;
+  icon?: unknown;
+  type?: {
+    key: string;
+    name: string;
+    [key: string]: unknown;
+  };
+  type_key?: string; // Fallback for backwards compatibility
+  snippet?: string;
   body?: string;
-  properties: Record<string, unknown>;
+  markdown?: string;
+  properties?: PropertyValue[];
   created_at?: string;
   updated_at?: string;
-  relations?: Record<string, string[]>;
+  space_id?: string;
+  archived?: boolean;
+  layout?: string;
 }
 
 /**
@@ -59,11 +91,18 @@ export interface AnyObject {
 export interface SearchResult {
   id: string;
   name: string;
-  type_key: string;
-  icon?: string;
+  type_key?: string;
+  type?: {
+    key: string;
+    name: string;
+    [key: string]: unknown;
+  };
+  icon?: unknown;
   snippet?: string;
+  properties?: PropertyValue[];
   created_at?: string;
   updated_at?: string;
+  space_id?: string;
 }
 
 /**

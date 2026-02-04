@@ -2,6 +2,19 @@ import { ConnectionError, ValidationError } from '../utils/errors.js';
 import type { Space, AnyObject, ObjectType, SearchResult, APIError } from './types.js';
 
 /**
+ * API response wrapper with pagination
+ */
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination?: {
+    total: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+  };
+}
+
+/**
  * Typed API client for Anytype
  */
 export class AnytypeClient {
@@ -85,18 +98,22 @@ export class AnytypeClient {
    * Get all spaces
    */
   async getSpaces(): Promise<Space[]> {
-    return this.request<Space[]>('GET', '/v1/spaces');
+    const response = await this.request<PaginatedResponse<Space>>('GET', '/v1/spaces');
+    return response.data;
   }
 
   /**
    * Get all types in a space
    */
   async getTypes(spaceId: string): Promise<ObjectType[]> {
-    return this.request<ObjectType[]>('GET', `/v1/spaces/${spaceId}/types`);
+    const response = await this.request<PaginatedResponse<ObjectType>>('GET', `/v1/spaces/${spaceId}/types`);
+    return response.data;
   }
 
   /**
    * Get objects in a space with optional filtering
+   * Note: When filtering by type, uses the search endpoint as the objects
+   * endpoint doesn't support type filtering via query params
    */
   async getObjects(
     spaceId: string,
@@ -106,8 +123,27 @@ export class AnytypeClient {
       offset?: number;
     }
   ): Promise<AnyObject[]> {
+    // If filtering by type, use the search endpoint
+    if (filters?.type_key) {
+      const queryParams = new URLSearchParams();
+      if (filters.limit) queryParams.append('limit', String(filters.limit));
+      if (filters.offset) queryParams.append('offset', String(filters.offset));
+
+      const endpoint = queryParams.size > 0
+        ? `/v1/spaces/${spaceId}/search?${queryParams}`
+        : `/v1/spaces/${spaceId}/search`;
+
+      const body = {
+        query: '',
+        types: [filters.type_key],
+      };
+
+      const response = await this.request<PaginatedResponse<AnyObject>>('POST', endpoint, body);
+      return response.data;
+    }
+
+    // No type filter - use the objects endpoint
     const queryParams = new URLSearchParams();
-    if (filters?.type_key) queryParams.append('type_key', filters.type_key);
     if (filters?.limit) queryParams.append('limit', String(filters.limit));
     if (filters?.offset) queryParams.append('offset', String(filters.offset));
 
@@ -116,14 +152,23 @@ export class AnytypeClient {
         ? `/v1/spaces/${spaceId}/objects?${queryParams}`
         : `/v1/spaces/${spaceId}/objects`;
 
-    return this.request<AnyObject[]>('GET', endpoint);
+    const response = await this.request<PaginatedResponse<AnyObject>>('GET', endpoint);
+    return response.data;
   }
 
   /**
    * Get a single object
    */
-  async getObject(spaceId: string, objectId: string): Promise<AnyObject> {
-    return this.request<AnyObject>('GET', `/v1/spaces/${spaceId}/objects/${objectId}`);
+  async getObject(spaceId: string, objectId: string, options?: { format?: 'markdown' }): Promise<AnyObject> {
+    const queryParams = new URLSearchParams();
+    if (options?.format) queryParams.append('format', options.format);
+
+    const endpoint = queryParams.size > 0
+      ? `/v1/spaces/${spaceId}/objects/${objectId}?${queryParams}`
+      : `/v1/spaces/${spaceId}/objects/${objectId}`;
+
+    const response = await this.request<{ object: AnyObject }>('GET', endpoint);
+    return response.object;
   }
 
   /**
@@ -179,11 +224,42 @@ export class AnytypeClient {
     }
   ): Promise<SearchResult[]> {
     const queryParams = new URLSearchParams();
-    queryParams.append('query', query);
-    if (filters?.type_key) queryParams.append('type_key', filters.type_key);
     if (filters?.limit) queryParams.append('limit', String(filters.limit));
     if (filters?.offset) queryParams.append('offset', String(filters.offset));
 
-    return this.request<SearchResult[]>('POST', `/v1/search?${queryParams}`);
+    const endpoint = queryParams.size > 0 ? `/v1/search?${queryParams}` : '/v1/search';
+
+    const body: Record<string, unknown> = { query };
+    if (filters?.type_key) body.types = [filters.type_key];
+
+    const response = await this.request<PaginatedResponse<SearchResult>>('POST', endpoint, body);
+    return response.data;
+  }
+
+  /**
+   * Search within a specific space
+   */
+  async searchInSpace(
+    spaceId: string,
+    query: string,
+    filters?: {
+      type_key?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<AnyObject[]> {
+    const queryParams = new URLSearchParams();
+    if (filters?.limit) queryParams.append('limit', String(filters.limit));
+    if (filters?.offset) queryParams.append('offset', String(filters.offset));
+
+    const endpoint = queryParams.size > 0
+      ? `/v1/spaces/${spaceId}/search?${queryParams}`
+      : `/v1/spaces/${spaceId}/search`;
+
+    const body: Record<string, unknown> = { query };
+    if (filters?.type_key) body.types = [filters.type_key];
+
+    const response = await this.request<PaginatedResponse<AnyObject>>('POST', endpoint, body);
+    return response.data;
   }
 }
