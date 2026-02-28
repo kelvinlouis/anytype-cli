@@ -10,6 +10,7 @@ export interface ConfigSchema {
   apiKey?: string;
   defaultSpace?: string;
   aliases?: Record<string, string>;
+  typeFields?: Record<string, string[]>;
   baseURL?: string;
 }
 
@@ -31,10 +32,7 @@ class ConfigManager {
       });
     } catch (error) {
       // Handle corrupted config file (e.g., empty JSON)
-      if (
-        error instanceof SyntaxError &&
-        error.message.includes('JSON')
-      ) {
+      if (error instanceof SyntaxError && error.message.includes('JSON')) {
         // Delete corrupted config file and retry
         if (existsSync(configPath)) {
           unlinkSync(configPath);
@@ -143,6 +141,39 @@ class ConfigManager {
   resolveAlias(alias: string): string {
     const aliases = this.getAliases();
     return aliases[alias] || alias;
+  }
+
+  /**
+   * Get default fields for a type key
+   */
+  getTypeFields(typeKey: string): string[] | undefined {
+    const typeFields = this.conf.get('typeFields') || {};
+    return typeFields[typeKey];
+  }
+
+  /**
+   * Set default fields for a type key
+   */
+  setTypeFields(typeKey: string, fields: string[]): void {
+    const typeFields = this.conf.get('typeFields') || {};
+    typeFields[typeKey] = fields;
+    this.conf.set('typeFields', typeFields);
+  }
+
+  /**
+   * Remove default fields for a type key
+   */
+  removeTypeFields(typeKey: string): void {
+    const typeFields = this.conf.get('typeFields') || {};
+    delete typeFields[typeKey];
+    this.conf.set('typeFields', typeFields);
+  }
+
+  /**
+   * Get all type field configurations
+   */
+  getAllTypeFields(): Record<string, string[]> {
+    return this.conf.get('typeFields') || {};
   }
 
   /**

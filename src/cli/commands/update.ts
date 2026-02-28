@@ -2,7 +2,13 @@ import { Command } from 'commander';
 import { readFileSync } from 'fs';
 import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
-import { ConfigError, NotFoundError, ValidationError, handleError } from '../../utils/errors.js';
+import { ConfigError, NotFoundError, handleError } from '../../utils/errors.js';
+import {
+  collectProperty,
+  toPropertyPayloads,
+  resolveTagProperties,
+  type ParsedProperty,
+} from '../../utils/properties.js';
 import { formatAsJson } from '../output.js';
 
 /**
@@ -44,7 +50,12 @@ export function createUpdateCommand(): Command {
     .option('--body <md>', 'Replace body content (use "-" to read from stdin)')
     .option('--append <md>', 'Append to body content')
     .option('--body-file <path>', 'Read body from file')
-    .option('--property <key=value>', 'Update object property (repeatable)', collect, [])
+    .option(
+      '--property <key=value>',
+      'Update property (repeatable, use key:type=value for explicit type)',
+      collectProperty,
+      [],
+    )
     .option('--link-to <id>', 'Link to another object by ID')
     .option('--unlink-from <id>', 'Remove link to object')
     .option('--dry-run', 'Preview without updating')
@@ -66,7 +77,7 @@ interface UpdateOptions {
   body?: string;
   append?: string;
   bodyFile?: string;
-  property: Array<{ key: string; value: string }>;
+  property: ParsedProperty[];
   linkTo?: string;
   unlinkFrom?: string;
   dryRun?: boolean;
@@ -75,37 +86,19 @@ interface UpdateOptions {
 }
 
 /**
- * Collect repeating options
- */
-function collect(value: string, previous: Array<{ key: string; value: string }>) {
-  const [key, val] = value.split('=');
-  if (!key || !val) {
-    throw new ValidationError('Properties must be in format key=value');
-  }
-  return previous.concat({ key, value: val });
-}
-
-/**
  * Update an object
  */
-async function updateAction(
-  identifier: string,
-  options: UpdateOptions
-): Promise<void> {
+async function updateAction(identifier: string, options: UpdateOptions): Promise<void> {
   // Get API key
   const apiKey = config.getApiKey();
   if (!apiKey) {
-    throw new ConfigError(
-      'API key not configured. Run `anytype init` first.'
-    );
+    throw new ConfigError('API key not configured. Run `anytype init` first.');
   }
 
   // Get default space
   const spaceId = config.getDefaultSpace();
   if (!spaceId) {
-    throw new ConfigError(
-      'No default space configured. Run `anytype init` first.'
-    );
+    throw new ConfigError('No default space configured. Run `anytype init` first.');
   }
 
   // Fetch object to get current state
@@ -138,13 +131,26 @@ async function updateAction(
     updateData.body = readFileSync(options.bodyFile, 'utf-8');
   }
 
-  // Build properties object
-  const properties = { ...object.properties };
-  for (const prop of options.property) {
-    properties[prop.key] = prop.value;
-  }
-
+  // Build properties array for API, using the type schema for correct formats
   if (options.property.length > 0) {
+    let propertySchema: Map<string, string> | undefined;
+    let typeProperties: import('../../api/types.js').TypeProperty[] | undefined;
+    const typeKey = object.type?.key || object.type_key;
+    if (typeKey) {
+      try {
+        const typeDef = await client.resolveType(spaceId, typeKey);
+        if (typeDef.properties) {
+          typeProperties = typeDef.properties;
+          propertySchema = new Map(typeDef.properties.map((p) => [p.key, p.format]));
+        }
+      } catch {
+        // Fall back to auto-detection
+      }
+    }
+    let properties = toPropertyPayloads(options.property, propertySchema);
+    if (typeProperties) {
+      properties = await resolveTagProperties(properties, typeProperties, client, spaceId);
+    }
     updateData.properties = properties;
   }
 
@@ -163,8 +169,12 @@ async function updateAction(
 
   // Update object
   if (Object.keys(updateData).length > 0) {
-    const updated = await client.updateObject(spaceId, object.id, updateData as Parameters<typeof client.updateObject>[2]);
-    
+    const updated = await client.updateObject(
+      spaceId,
+      object.id,
+      updateData as Parameters<typeof client.updateObject>[2],
+    );
+
     if (options.json) {
       console.log(formatAsJson(updated));
     } else {

@@ -11,6 +11,8 @@ import { createSearchCommand } from './cli/commands/search.js';
 import { createCreateCommand } from './cli/commands/create.js';
 import { createUpdateCommand } from './cli/commands/update.js';
 import { createAliasCommand } from './cli/commands/alias.js';
+import { createFieldsCommand } from './cli/commands/fields.js';
+import { createTemplatesCommand } from './cli/commands/templates.js';
 
 const packageJson = {
   version: '1.0.0',
@@ -42,6 +44,8 @@ program.addCommand(createSearchCommand());
 program.addCommand(createCreateCommand());
 program.addCommand(createUpdateCommand());
 program.addCommand(createAliasCommand());
+program.addCommand(createFieldsCommand());
+program.addCommand(createTemplatesCommand());
 
 // Parse arguments
 program.parse(process.argv);

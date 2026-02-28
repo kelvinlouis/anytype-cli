@@ -15,6 +15,17 @@ export interface Space {
 }
 
 /**
+ * Property associated with a type from the types API
+ */
+export interface TypeProperty {
+  object: 'property';
+  id: string;
+  key: string;
+  name: string;
+  format: string;
+}
+
+/**
  * Object type from /v1/spaces/{space_id}/types
  */
 export interface ObjectType {
@@ -23,19 +34,8 @@ export interface ObjectType {
   name: string;
   icon?: string;
   description?: string;
-  properties?: Record<string, unknown>;
+  properties?: TypeProperty[];
   layout?: string;
-}
-
-/**
- * Property definition for object types
- */
-export interface PropertyDefinition {
-  id: string;
-  key: string;
-  name: string;
-  type: string;
-  required?: boolean;
 }
 
 /**
@@ -103,6 +103,16 @@ export interface SearchResult {
   created_at?: string;
   updated_at?: string;
   space_id?: string;
+}
+
+/**
+ * Tag for select/multi_select properties
+ */
+export interface Tag {
+  id: string;
+  key?: string;
+  name: string;
+  color?: string;
 }
 
 /**

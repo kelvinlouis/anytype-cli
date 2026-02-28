@@ -18,7 +18,7 @@ export class CLIError extends Error {
     message: string,
     public exitCode: number = EXIT_CODES.GENERAL_ERROR,
     public verbose?: boolean,
-    public cause?: Error
+    public cause?: Error,
   ) {
     super(message);
     this.name = 'CLIError';

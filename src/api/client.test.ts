@@ -41,7 +41,7 @@ describe('AnytypeClient', () => {
           headers: expect.objectContaining({
             Authorization: `Bearer ${apiKey}`,
           }),
-        })
+        }),
       );
     });
 
@@ -80,16 +80,70 @@ describe('AnytypeClient', () => {
       expect(result).toEqual(mockTypes);
       expect(global.fetch).toHaveBeenCalledWith(
         `${baseURL}/v1/spaces/space1/types`,
-        expect.any(Object)
+        expect.any(Object),
       );
+    });
+  });
+
+  describe('getType', () => {
+    it('should fetch a single type by key (wrapped response)', async () => {
+      const mockType = {
+        id: 'type-id-1',
+        key: 'note',
+        name: 'Note',
+        layout: 'basic',
+        properties: [
+          { object: 'property', id: 'p1', key: 'description', name: 'Description', format: 'text' },
+        ],
+      };
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ type: mockType }),
+      });
+
+      const result = await client.getType('space1', 'note');
+
+      expect(result).toEqual(mockType);
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${baseURL}/v1/spaces/space1/types/note`,
+        expect.any(Object),
+      );
+    });
+
+    it('should handle unwrapped response shape', async () => {
+      const mockType = {
+        id: 'type-id-1',
+        key: 'note',
+        name: 'Note',
+        properties: [],
+      };
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockType,
+      });
+
+      const result = await client.getType('space1', 'note');
+
+      expect(result).toEqual(mockType);
+    });
+
+    it('should handle 404 not found', async () => {
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({ message: 'Not found' }),
+      });
+
+      await expect(client.getType('space1', 'nonexistent')).rejects.toThrow(ValidationError);
     });
   });
 
   describe('getObjects', () => {
     it('should fetch objects without filters', async () => {
-      const mockObjects = [
-        { id: 'obj1', name: 'Object 1', type_key: 'type1' },
-      ];
+      const mockObjects = [{ id: 'obj1', name: 'Object 1', type_key: 'type1' }];
 
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
@@ -101,14 +155,12 @@ describe('AnytypeClient', () => {
       expect(result).toEqual(mockObjects);
       expect(global.fetch).toHaveBeenCalledWith(
         `${baseURL}/v1/spaces/space1/objects`,
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
     it('should fetch objects with type filter', async () => {
-      const mockObjects = [
-        { id: 'obj1', name: 'Object 1', type_key: 'type1' },
-      ];
+      const mockObjects = [{ id: 'obj1', name: 'Object 1', type_key: 'type1' }];
 
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
@@ -120,14 +172,12 @@ describe('AnytypeClient', () => {
       expect(result).toEqual(mockObjects);
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('type_key=type1'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
     it('should fetch objects with limit', async () => {
-      const mockObjects = [
-        { id: 'obj1', name: 'Object 1', type_key: 'type1' },
-      ];
+      const mockObjects = [{ id: 'obj1', name: 'Object 1', type_key: 'type1' }];
 
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
@@ -139,7 +189,7 @@ describe('AnytypeClient', () => {
       expect(result).toEqual(mockObjects);
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('limit=10'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
@@ -164,7 +214,7 @@ describe('AnytypeClient', () => {
       expect(result).toEqual(mockObject);
       expect(global.fetch).toHaveBeenCalledWith(
         `${baseURL}/v1/spaces/space1/objects/obj1`,
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -176,9 +226,7 @@ describe('AnytypeClient', () => {
         json: async () => ({ message: 'Not found' }),
       });
 
-      await expect(client.getObject('space1', 'nonexistent')).rejects.toThrow(
-        ValidationError
-      );
+      await expect(client.getObject('space1', 'nonexistent')).rejects.toThrow(ValidationError);
     });
   });
 
@@ -209,7 +257,7 @@ describe('AnytypeClient', () => {
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify(objectData),
-        })
+        }),
       );
     });
 
@@ -217,7 +265,10 @@ describe('AnytypeClient', () => {
       const objectData = {
         name: 'New Object',
         type_key: 'type1',
-        properties: { mood: 'happy', status: 'active' },
+        properties: [
+          { key: 'mood', text: 'happy' },
+          { key: 'status', text: 'active' },
+        ],
       };
 
       const mockCreatedObject = {
@@ -238,7 +289,7 @@ describe('AnytypeClient', () => {
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify(objectData),
-        })
+        }),
       );
     });
   });
@@ -270,7 +321,7 @@ describe('AnytypeClient', () => {
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify(updateData),
-        })
+        }),
       );
     });
 
@@ -299,9 +350,7 @@ describe('AnytypeClient', () => {
 
   describe('search', () => {
     it('should search with type filter', async () => {
-      const mockResults = [
-        { id: 'obj1', name: 'Object 1', snippet: 'Found text' },
-      ];
+      const mockResults = [{ id: 'obj1', name: 'Object 1', snippet: 'Found text' }];
 
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
@@ -313,7 +362,7 @@ describe('AnytypeClient', () => {
       expect(result).toEqual(mockResults);
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('type_key=type1'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });

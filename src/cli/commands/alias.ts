@@ -6,8 +6,7 @@ import { handleError } from '../../utils/errors.js';
  * Create the `alias` command group
  */
 export function createAliasCommand(): Command {
-  const command = new Command('alias')
-    .description('Manage type aliases');
+  const command = new Command('alias').description('Manage type aliases');
 
   // Subcommands
   command

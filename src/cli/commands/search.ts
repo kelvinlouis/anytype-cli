@@ -42,9 +42,7 @@ async function searchAction(query: string, options: SearchOptions): Promise<void
   // Get API key
   const apiKey = config.getApiKey();
   if (!apiKey) {
-    throw new ConfigError(
-      'API key not configured. Run `anytype init` first.'
-    );
+    throw new ConfigError('API key not configured. Run `anytype init` first.');
   }
 
   // Fetch search results

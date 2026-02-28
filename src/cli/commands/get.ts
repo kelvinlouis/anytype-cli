@@ -32,21 +32,21 @@ interface GetOptions {
 /**
  * Get a single object by ID or name
  */
-async function getAction(typeInput: string, identifier: string, options: GetOptions): Promise<void> {
+async function getAction(
+  typeInput: string,
+  identifier: string,
+  options: GetOptions,
+): Promise<void> {
   // Get API key
   const apiKey = config.getApiKey();
   if (!apiKey) {
-    throw new ConfigError(
-      'API key not configured. Run `anytype init` first.'
-    );
+    throw new ConfigError('API key not configured. Run `anytype init` first.');
   }
 
   // Get default space
   const spaceId = config.getDefaultSpace();
   if (!spaceId) {
-    throw new ConfigError(
-      'No default space configured. Run `anytype init` first.'
-    );
+    throw new ConfigError('No default space configured. Run `anytype init` first.');
   }
 
   // Resolve type alias
@@ -68,19 +68,42 @@ async function getAction(typeInput: string, identifier: string, options: GetOpti
 
     const found = objects.find((obj) => obj.name === identifier);
     if (!found) {
-      throw new NotFoundError(
-        `Object "${identifier}" not found (type: ${typeInput})`
-      );
+      throw new NotFoundError(`Object "${identifier}" not found (type: ${typeInput})`);
     }
 
     // Re-fetch with body content
     object = await client.getObject(spaceId, found.id, { format: 'markdown' });
   }
 
+  // Resolve object names for object-type properties (e.g., team_member_rel → actual name)
+  const objectNames = new Map<string, string>();
+  if (!options.json && object.properties) {
+    const objectIds = new Set<string>();
+    for (const prop of object.properties) {
+      if (prop.format === 'objects' && prop.objects?.length) {
+        for (const id of prop.objects) {
+          objectIds.add(id);
+        }
+      }
+    }
+    if (objectIds.size > 0) {
+      await Promise.all(
+        [...objectIds].map(async (id) => {
+          try {
+            const resolved = await client.getObject(spaceId, id);
+            objectNames.set(id, resolved.name);
+          } catch {
+            // Keep ID as fallback if object can't be resolved
+          }
+        }),
+      );
+    }
+  }
+
   // Output results
   if (options.json) {
     console.log(formatAsJson(object));
   } else {
-    console.log(formatObjectAsText(object));
+    console.log(formatObjectAsText(object, objectNames));
   }
 }

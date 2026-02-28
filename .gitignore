@@ -2,3 +2,5 @@ node_modules/
 dist/
 .goose/
 *.log
+.claude/settings.local.json
+IMPLEMENTATION_PLAN.md

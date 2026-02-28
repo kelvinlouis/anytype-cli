@@ -1,4 +1,4 @@
-import type { AnyObject, ObjectType, SearchResult } from '../api/types.js';
+import type { AnyObject, ObjectType, SearchResult, TypeProperty } from '../api/types.js';
 
 /**
  * Format data as JSON string
@@ -37,7 +37,10 @@ function formatIcon(icon: unknown): string {
  * Format an Anytype property value based on its format type.
  * Returns an object with the property name and formatted value.
  */
-function formatPropertyValue(prop: Record<string, unknown>): { name: string; value: string } | null {
+function formatPropertyValue(
+  prop: Record<string, unknown>,
+  objectNames?: Map<string, string>,
+): { name: string; value: string } | null {
   if (prop.object !== 'property' || !prop.format || !prop.name) {
     return null;
   }
@@ -74,8 +77,8 @@ function formatPropertyValue(prop: Record<string, unknown>): { name: string; val
 
     case 'multi_select':
       if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
-        const tags = prop.multi_select.map((tag: Record<string, unknown>) =>
-          (tag.name as string) || (tag.key as string)
+        const tags = prop.multi_select.map(
+          (tag: Record<string, unknown>) => (tag.name as string) || (tag.key as string),
         );
         return { name, value: tags.join(', ') };
       }
@@ -83,6 +86,12 @@ function formatPropertyValue(prop: Record<string, unknown>): { name: string; val
 
     case 'objects':
       if (Array.isArray(prop.objects) && prop.objects.length > 0) {
+        if (objectNames && objectNames.size > 0) {
+          const names = (prop.objects as string[])
+            .map((id) => objectNames.get(id) || id)
+            .join(', ');
+          return { name, value: names };
+        }
         const count = prop.objects.length;
         return { name, value: `${count} object${count > 1 ? 's' : ''}` };
       }
@@ -142,8 +151,7 @@ function formatValue(value: unknown, indent = 0): string {
     // For arrays of objects, format each on a new line
     const prefix = '  '.repeat(indent + 1);
     return (
-      '\n' +
-      value.map((v, i) => `${prefix}${i + 1}. ${formatValue(v, indent + 1)}`).join('\n')
+      '\n' + value.map((v, i) => `${prefix}${i + 1}. ${formatValue(v, indent + 1)}`).join('\n')
     );
   }
   if (typeof value === 'object') {
@@ -178,7 +186,8 @@ export function formatTypesAsMarkdown(types: ObjectType[]): string {
   lines.push('|-----------|----------|----------------|');
 
   for (const type of types) {
-    const propCount = Object.keys(type.properties || {}).length;
+    const props = type.properties;
+    const propCount = Array.isArray(props) ? props.length : Object.keys(props || {}).length;
     lines.push(`| ${type.name} | \`${type.key}\` | ${propCount} |`);
   }
 
@@ -186,18 +195,167 @@ export function formatTypesAsMarkdown(types: ObjectType[]): string {
 }
 
 /**
+ * Map of computed fields that derive values from the properties array.
+ */
+const COMPUTED_FIELDS: Record<string, (obj: AnyObject) => number> = {
+  link_count: (obj) => {
+    const prop = obj.properties?.find((p) => p.key === 'links');
+    return prop?.objects?.length ?? 0;
+  },
+  backlink_count: (obj) => {
+    const prop = obj.properties?.find((p) => p.key === 'backlinks');
+    return prop?.objects?.length ?? 0;
+  },
+};
+
+/**
+ * Truncate a cell value for markdown table display.
+ * Collapses newlines, escapes pipe chars, and truncates to maxLength.
+ */
+export function truncateCell(value: string, maxLength = 80): string {
+  // Collapse newlines into spaces
+  let result = value.replace(/\n/g, ' ').trim();
+  // Escape pipe chars to prevent breaking markdown tables
+  result = result.replace(/\|/g, '\\|');
+  if (result.length > maxLength) {
+    result = result.substring(0, maxLength - 3) + '...';
+  }
+  return result;
+}
+
+/**
+ * Resolve a field value from an object, checking computed fields first,
+ * then top-level keys, then falling back to the properties array (matched by key or name).
+ */
+export function resolveFieldValue(
+  obj: AnyObject,
+  field: string,
+  objectNames?: Map<string, string>,
+): string {
+  // Check computed fields first
+  if (field in COMPUTED_FIELDS) {
+    return String(COMPUTED_FIELDS[field](obj));
+  }
+
+  // Check top-level keys first
+  const topLevel = (obj as Record<string, unknown>)[field];
+  if (topLevel !== undefined && topLevel !== null) {
+    const formatted = formatValue(topLevel);
+    const singleLine = formatted.replace(/\n/g, ' ').trim();
+    if (field === 'id') {
+      return `\`${singleLine}\``;
+    }
+    return singleLine;
+  }
+
+  // Search in properties array by key or name (case-insensitive)
+  if (obj.properties) {
+    const fieldLower = field.toLowerCase();
+    const prop = obj.properties.find(
+      (p) => p.key?.toLowerCase() === fieldLower || p.name?.toLowerCase() === fieldLower,
+    );
+    if (prop) {
+      const formatted = formatPropertyValue(
+        prop as unknown as Record<string, unknown>,
+        objectNames,
+      );
+      if (formatted) {
+        return formatted.value;
+      }
+    }
+  }
+
+  return '-';
+}
+
+/**
+ * Resolve a raw field value from an object for sorting purposes.
+ * Returns Date for date fields, number for number fields, string for text, null for empty.
+ */
+export function resolveRawFieldValue(obj: AnyObject, field: string): Date | number | string | null {
+  // Check computed fields first
+  if (field in COMPUTED_FIELDS) {
+    return COMPUTED_FIELDS[field](obj);
+  }
+
+  // Check top-level date fields
+  if (field === 'created_at' || field === 'updated_at') {
+    const val = (obj as unknown as Record<string, unknown>)[field];
+    if (val && typeof val === 'string') {
+      const date = new Date(val);
+      if (!isNaN(date.getTime())) return date;
+    }
+    return null;
+  }
+
+  // Check other top-level keys
+  const topLevel = (obj as unknown as Record<string, unknown>)[field];
+  if (topLevel !== undefined && topLevel !== null) {
+    if (typeof topLevel === 'number') return topLevel;
+    if (typeof topLevel === 'string') return topLevel || null;
+    return String(topLevel);
+  }
+
+  // Search in properties array by key or name (case-insensitive)
+  if (obj.properties) {
+    const fieldLower = field.toLowerCase();
+    const prop = obj.properties.find(
+      (p) => p.key?.toLowerCase() === fieldLower || p.name?.toLowerCase() === fieldLower,
+    );
+    if (prop) {
+      const format = prop.format;
+      switch (format) {
+        case 'date':
+          if (prop.date) {
+            const date = new Date(prop.date);
+            if (!isNaN(date.getTime())) return date;
+          }
+          return null;
+        case 'number':
+          if (prop.number !== undefined && prop.number !== null) return prop.number;
+          return null;
+        case 'text':
+          return prop.text || null;
+        case 'select':
+          if (prop.select && typeof prop.select === 'object') {
+            return ((prop.select as Record<string, unknown>).name as string) || null;
+          }
+          return null;
+        case 'multi_select':
+          if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
+            return prop.multi_select
+              .map((t: Record<string, unknown>) => t.name as string)
+              .join(', ');
+          }
+          return null;
+        case 'checkbox':
+          return (prop as unknown as Record<string, unknown>).checkbox ? 1 : 0;
+        default: {
+          const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>);
+          if (formatted && formatted.value !== '-') return formatted.value;
+          return null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Format objects as markdown table
  */
 export function formatObjectsAsMarkdown(
   objects: AnyObject[],
-  fields?: string[]
+  fields?: string[],
+  objectNames?: Map<string, string>,
 ): string {
   if (objects.length === 0) {
     return 'No objects found.';
   }
 
   // Default fields if not specified
-  const displayFields = fields || ['name', 'id', 'updated_at'];
+  const displayFields = fields || ['name', 'id', 'created_at', 'updated_at'];
 
   // Build header
   const headers = displayFields.map((f) => {
@@ -214,16 +372,9 @@ export function formatObjectsAsMarkdown(
 
   // Add rows
   for (const obj of objects) {
-    const row = displayFields.map((field) => {
-      const value = (obj as Record<string, unknown>)[field];
-      if (value === undefined || value === null) {
-        return '-';
-      }
-      const formatted = formatValue(value);
-      // Truncate for table display and remove newlines
-      const singleLine = formatted.replace(/\n/g, ' ').trim();
-      return singleLine.length > 30 ? singleLine.substring(0, 27) + '...' : singleLine;
-    });
+    const row = displayFields.map((field) =>
+      truncateCell(resolveFieldValue(obj, field, objectNames)),
+    );
     lines.push(`| ${row.join(' | ')} |`);
   }
 
@@ -233,7 +384,7 @@ export function formatObjectsAsMarkdown(
 /**
  * Format single object as detailed text
  */
-export function formatObjectAsText(obj: AnyObject): string {
+export function formatObjectAsText(obj: AnyObject, objectNames?: Map<string, string>): string {
   const lines: string[] = [];
 
   lines.push(`# ${obj.name}`);
@@ -250,16 +401,17 @@ export function formatObjectAsText(obj: AnyObject): string {
   }
 
   if (obj.updated_at) {
-    lines.push(
-      `**Updated:** ${new Date(obj.updated_at).toLocaleDateString()}`
-    );
+    lines.push(`**Updated:** ${new Date(obj.updated_at).toLocaleDateString()}`);
   }
 
   if (obj.properties && obj.properties.length > 0) {
     lines.push('');
     lines.push('## Properties');
     for (const prop of obj.properties) {
-      const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>);
+      const formatted = formatPropertyValue(
+        prop as unknown as Record<string, unknown>,
+        objectNames,
+      );
       if (formatted) {
         lines.push(`- **${formatted.name}:** ${formatted.value}`);
       }
@@ -277,11 +429,108 @@ export function formatObjectAsText(obj: AnyObject): string {
 }
 
 /**
+ * Format a single type's detail view with property table and usage examples
+ */
+export function formatTypeDetailAsMarkdown(type: ObjectType): string {
+  const lines: string[] = [];
+
+  lines.push(`# ${type.name}`);
+  lines.push('');
+  lines.push(`**Key:** \`${type.key}\``);
+  if (type.layout) {
+    lines.push(`**Layout:** ${type.layout}`);
+  }
+
+  const properties = type.properties || [];
+  if (properties.length > 0) {
+    lines.push('');
+    lines.push(`## Properties (${properties.length})`);
+    lines.push('');
+    lines.push('| Property Name | Key | Format |');
+    lines.push('|---------------|-----|--------|');
+    for (const prop of properties) {
+      lines.push(`| ${prop.name} | \`${prop.key}\` | ${prop.format} |`);
+    }
+
+    // Usage examples
+    const exampleProps = properties.filter(
+      (p) => !['links', 'backlinks', 'type', 'name'].includes(p.key),
+    );
+    if (exampleProps.length > 0) {
+      lines.push('');
+      lines.push('## Usage');
+      lines.push('');
+
+      const firstProp = exampleProps[0];
+      lines.push(`  anytype create ${type.key} "Name" --property ${firstProp.key}="example value"`);
+
+      lines.push(`  anytype list ${type.key} --where ${firstProp.key}=value`);
+
+      const fieldKeys = exampleProps.slice(0, 5).map((p) => p.key);
+      lines.push(`  anytype list ${type.key} --fields name,${fieldKeys.join(',')}`);
+    }
+  } else {
+    lines.push('');
+    lines.push('No properties found for this type.');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Format templates as markdown table
+ */
+export function formatTemplatesAsMarkdown(templates: AnyObject[]): string {
+  if (templates.length === 0) {
+    return 'No templates found.';
+  }
+
+  const lines: string[] = [];
+  lines.push('| Name | ID |');
+  lines.push('|------|----|');
+
+  for (const template of templates) {
+    lines.push(`| ${template.name} | \`${template.id}\` |`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Format a single template's detail view
+ */
+export function formatTemplateDetailAsMarkdown(template: AnyObject): string {
+  const lines: string[] = [];
+
+  lines.push(`# ${template.name}`);
+  lines.push('');
+  lines.push(`**ID:** \`${template.id}\``);
+
+  if (template.properties && template.properties.length > 0) {
+    lines.push('');
+    lines.push('## Properties');
+    for (const prop of template.properties) {
+      const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>);
+      if (formatted) {
+        lines.push(`- **${formatted.name}:** ${formatted.value}`);
+      }
+    }
+  }
+
+  if (template.markdown && template.markdown.trim()) {
+    lines.push('');
+    lines.push('## Content');
+    lines.push('');
+    lines.push(template.markdown);
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Format search results as markdown list
  */
-export function formatSearchResultsAsMarkdown(
-  results: SearchResult[]
-): string {
+export function formatSearchResultsAsMarkdown(results: SearchResult[]): string {
   if (results.length === 0) {
     return 'No results found.';
   }

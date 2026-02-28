@@ -35,7 +35,7 @@ async function initAction(options: InitOptions): Promise<void> {
   // Validate API key was provided
   if (!apiKey) {
     throw new ConfigError(
-      'API key is required. Use --api-key <key> to provide it, or run without flags for interactive mode.'
+      'API key is required. Use --api-key <key> to provide it, or run without flags for interactive mode.',
     );
   }
 

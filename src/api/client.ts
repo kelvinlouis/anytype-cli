@@ -1,5 +1,5 @@
 import { ConnectionError, ValidationError } from '../utils/errors.js';
-import type { Space, AnyObject, ObjectType, SearchResult, APIError } from './types.js';
+import type { Space, AnyObject, ObjectType, SearchResult, APIError, Tag } from './types.js';
 
 /**
  * API response wrapper with pagination
@@ -29,11 +29,7 @@ export class AnytypeClient {
   /**
    * Make an authenticated request to the Anytype API
    */
-  private async request<T>(
-    method: string,
-    endpoint: string,
-    body?: unknown
-  ): Promise<T> {
+  private async request<T>(method: string, endpoint: string, body?: unknown): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -71,11 +67,11 @@ export class AnytypeClient {
         }
 
         throw new ValidationError(
-          `API error: ${typeof errorData === 'string' ? errorData : (errorData as APIError).message || JSON.stringify(errorData)}`
+          `API error: ${typeof errorData === 'string' ? errorData : (errorData as APIError).message || JSON.stringify(errorData)}`,
         );
       }
 
-      return await response.json() as T;
+      return (await response.json()) as T;
     } catch (error) {
       // Re-throw ValidationErrors as-is
       if (error instanceof ValidationError) {
@@ -86,7 +82,7 @@ export class AnytypeClient {
       if (error instanceof TypeError) {
         throw new ConnectionError(
           'Failed to connect to Anytype. Ensure Anytype is running on http://127.0.0.1:31009',
-          error as Error
+          error as Error,
         );
       }
 
@@ -106,8 +102,84 @@ export class AnytypeClient {
    * Get all types in a space
    */
   async getTypes(spaceId: string): Promise<ObjectType[]> {
-    const response = await this.request<PaginatedResponse<ObjectType>>('GET', `/v1/spaces/${spaceId}/types`);
+    const response = await this.request<PaginatedResponse<ObjectType>>(
+      'GET',
+      `/v1/spaces/${spaceId}/types`,
+    );
     return response.data;
+  }
+
+  /**
+   * Get templates for a type
+   */
+  async getTemplates(spaceId: string, typeId: string): Promise<AnyObject[]> {
+    const response = await this.request<PaginatedResponse<AnyObject>>(
+      'GET',
+      `/v1/spaces/${spaceId}/types/${typeId}/templates`,
+    );
+    return response.data;
+  }
+
+  /**
+   * Get a single template for a type
+   */
+  async getTemplate(spaceId: string, typeId: string, templateId: string): Promise<AnyObject> {
+    const response = await this.request<{ template: AnyObject } | AnyObject>(
+      'GET',
+      `/v1/spaces/${spaceId}/types/${typeId}/templates/${templateId}`,
+    );
+    // Handle both wrapped { template: {...} } and unwrapped response shapes
+    if ('template' in response && (response as { template: AnyObject }).template?.id) {
+      return (response as { template: AnyObject }).template;
+    }
+    return response as AnyObject;
+  }
+
+  /**
+   * Get a single type by ID or key
+   */
+  async getType(spaceId: string, typeId: string): Promise<ObjectType> {
+    const response = await this.request<{ type: ObjectType } | ObjectType>(
+      'GET',
+      `/v1/spaces/${spaceId}/types/${typeId}`,
+    );
+    // Handle both wrapped { type: {...} } and unwrapped response shapes
+    if ('type' in response && (response as { type: ObjectType }).type?.key) {
+      return (response as { type: ObjectType }).type;
+    }
+    return response as ObjectType;
+  }
+
+  /**
+   * Resolve a type by key or name, with fallback to listing all types.
+   * The types endpoint sometimes fails with short keys (e.g. "article"),
+   * so this method first tries a direct lookup, then falls back to
+   * searching through all types and fetching by ID.
+   */
+  async resolveType(spaceId: string, typeKey: string): Promise<ObjectType> {
+    // Try direct fetch first
+    try {
+      return await this.getType(spaceId, typeKey);
+    } catch {
+      // Fallback: list all types and match by key or name
+    }
+
+    const allTypes = await this.getTypes(spaceId);
+    const keyLower = typeKey.toLowerCase();
+    const match = allTypes.find(
+      (t) => t.key.toLowerCase() === keyLower || t.name.toLowerCase() === keyLower,
+    );
+
+    if (!match) {
+      throw new ValidationError(`Type "${typeKey}" not found.`);
+    }
+
+    // Fetch full type detail by ID to get properties
+    try {
+      return await this.getType(spaceId, match.id);
+    } catch {
+      return match;
+    }
   }
 
   /**
@@ -121,7 +193,7 @@ export class AnytypeClient {
       type_key?: string;
       limit?: number;
       offset?: number;
-    }
+    },
   ): Promise<AnyObject[]> {
     // If filtering by type, use the search endpoint
     if (filters?.type_key) {
@@ -129,9 +201,10 @@ export class AnytypeClient {
       if (filters.limit) queryParams.append('limit', String(filters.limit));
       if (filters.offset) queryParams.append('offset', String(filters.offset));
 
-      const endpoint = queryParams.size > 0
-        ? `/v1/spaces/${spaceId}/search?${queryParams}`
-        : `/v1/spaces/${spaceId}/search`;
+      const endpoint =
+        queryParams.size > 0
+          ? `/v1/spaces/${spaceId}/search?${queryParams}`
+          : `/v1/spaces/${spaceId}/search`;
 
       const body = {
         query: '',
@@ -159,13 +232,18 @@ export class AnytypeClient {
   /**
    * Get a single object
    */
-  async getObject(spaceId: string, objectId: string, options?: { format?: 'markdown' }): Promise<AnyObject> {
+  async getObject(
+    spaceId: string,
+    objectId: string,
+    options?: { format?: 'markdown' },
+  ): Promise<AnyObject> {
     const queryParams = new URLSearchParams();
     if (options?.format) queryParams.append('format', options.format);
 
-    const endpoint = queryParams.size > 0
-      ? `/v1/spaces/${spaceId}/objects/${objectId}?${queryParams}`
-      : `/v1/spaces/${spaceId}/objects/${objectId}`;
+    const endpoint =
+      queryParams.size > 0
+        ? `/v1/spaces/${spaceId}/objects/${objectId}?${queryParams}`
+        : `/v1/spaces/${spaceId}/objects/${objectId}`;
 
     const response = await this.request<{ object: AnyObject }>('GET', endpoint);
     return response.object;
@@ -180,10 +258,20 @@ export class AnytypeClient {
       name: string;
       type_key: string;
       body?: string;
-      properties?: Record<string, unknown>;
-    }
+      template_id?: string;
+      properties?: Array<{ key: string; [field: string]: unknown }>;
+    },
   ): Promise<AnyObject> {
-    return this.request<AnyObject>('POST', `/v1/spaces/${spaceId}/objects`, data);
+    const response = await this.request<{ object: AnyObject } | AnyObject>(
+      'POST',
+      `/v1/spaces/${spaceId}/objects`,
+      data,
+    );
+    // Handle both wrapped { object: {...} } and unwrapped response shapes
+    if ('object' in response && (response as { object: AnyObject }).object?.id) {
+      return (response as { object: AnyObject }).object;
+    }
+    return response as AnyObject;
   }
 
   /**
@@ -195,14 +283,19 @@ export class AnytypeClient {
     data: Partial<{
       name: string;
       body: string;
-      properties: Record<string, unknown>;
-    }>
+      properties: Array<{ key: string; [field: string]: unknown }>;
+    }>,
   ): Promise<AnyObject> {
-    return this.request<AnyObject>(
+    const response = await this.request<{ object: AnyObject } | AnyObject>(
       'PATCH',
       `/v1/spaces/${spaceId}/objects/${objectId}`,
-      data
+      data,
     );
+    // Handle both wrapped { object: {...} } and unwrapped response shapes
+    if ('object' in response && (response as { object: AnyObject }).object?.id) {
+      return (response as { object: AnyObject }).object;
+    }
+    return response as AnyObject;
   }
 
   /**
@@ -221,7 +314,7 @@ export class AnytypeClient {
       type_key?: string;
       limit?: number;
       offset?: number;
-    }
+    },
   ): Promise<SearchResult[]> {
     const queryParams = new URLSearchParams();
     if (filters?.limit) queryParams.append('limit', String(filters.limit));
@@ -246,20 +339,52 @@ export class AnytypeClient {
       type_key?: string;
       limit?: number;
       offset?: number;
-    }
+    },
   ): Promise<AnyObject[]> {
     const queryParams = new URLSearchParams();
     if (filters?.limit) queryParams.append('limit', String(filters.limit));
     if (filters?.offset) queryParams.append('offset', String(filters.offset));
 
-    const endpoint = queryParams.size > 0
-      ? `/v1/spaces/${spaceId}/search?${queryParams}`
-      : `/v1/spaces/${spaceId}/search`;
+    const endpoint =
+      queryParams.size > 0
+        ? `/v1/spaces/${spaceId}/search?${queryParams}`
+        : `/v1/spaces/${spaceId}/search`;
 
     const body: Record<string, unknown> = { query };
     if (filters?.type_key) body.types = [filters.type_key];
 
     const response = await this.request<PaginatedResponse<AnyObject>>('POST', endpoint, body);
     return response.data;
+  }
+
+  /**
+   * List tags for a property
+   */
+  async listTags(spaceId: string, propertyId: string): Promise<Tag[]> {
+    const response = await this.request<PaginatedResponse<Tag>>(
+      'GET',
+      `/v1/spaces/${spaceId}/properties/${propertyId}/tags`,
+    );
+    return response.data;
+  }
+
+  /**
+   * Create a tag for a property
+   */
+  async createTag(
+    spaceId: string,
+    propertyId: string,
+    data: { name: string; color?: string },
+  ): Promise<Tag> {
+    const response = await this.request<{ tag: Tag } | Tag>(
+      'POST',
+      `/v1/spaces/${spaceId}/properties/${propertyId}/tags`,
+      data,
+    );
+    // Handle both wrapped { tag: {...} } and unwrapped response shapes
+    if ('tag' in response && (response as { tag: Tag }).tag?.id) {
+      return (response as { tag: Tag }).tag;
+    }
+    return response as Tag;
   }
 }
