@@ -67,6 +67,7 @@ Rules:
 
 - Prettier is configured via `.prettierrc` (printWidth: 100, singleQuote, trailingComma: all)
 - All `.ts` files must be formatted with Prettier
+- Always run `npx prettier --write .` at the end of any code change to ensure the entire codebase stays consistently formatted
 
 ## Architecture
 
