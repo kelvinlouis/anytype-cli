@@ -221,9 +221,9 @@ describe('formatTypeDetailAsMarkdown', () => {
     };
     const result = formatTypeDetailAsMarkdown(type);
     expect(result).toContain('## Usage');
-    expect(result).toContain('anytype create note "Name" --property description="example value"');
-    expect(result).toContain('anytype list note --where description=value');
-    expect(result).toContain('anytype list note --fields name,description');
+    expect(result).toContain('anyt create note "Name" --property description="example value"');
+    expect(result).toContain('anyt list note --where description=value');
+    expect(result).toContain('anyt list note --fields name,description');
   });
 
   it('should show message when no properties', () => {

@@ -68,7 +68,7 @@ async function initAction(options: InitOptions): Promise<void> {
   console.log('✓ Configuration saved successfully');
   console.log(`✓ Found ${spaces.length} space(s)`);
   console.log('✓ Default aliases configured');
-  console.log('\nYou can now use anytype commands. Try:');
-  console.log('  anytype --help');
-  console.log('  anytype types');
+  console.log('\nYou can now use anyt commands. Try:');
+  console.log('  anyt --help');
+  console.log('  anyt types');
 }

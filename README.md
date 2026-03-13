@@ -4,6 +4,8 @@ A command-line interface built around the [Anytype](https://anytype.io/) local A
 
 > **Note:** This is a personal/internal tool and is not published to npm. It is built around the author's own types and workflows and may not cover all Anytype features or use cases.
 
+The executable for this CLI is **`anyt`** (not `anytype`) to avoid clashing with the official [anytype-cli](https://github.com/anyproto/anytype-cli).
+
 ## Prerequisites
 
 - Node.js 18+
@@ -17,7 +19,7 @@ This package is not published to npm — `npm install -g anytype-cli` will not w
 ## Getting Started
 
 ```bash
-anytype init --api-key <your_key>
+anyt init --api-key <your_key>
 ```
 
 This saves your API key and lets you select a default space.
@@ -41,28 +43,28 @@ This saves your API key and lets you select a default space.
 
 ```bash
 # List all objects of a type
-anytype list note
+anyt list note
 
 # Filter and sort
-anytype list task --where "status=In Progress" --sort "created_date:desc"
+anyt list task --where "status=In Progress" --sort "created_date:desc"
 
 # Get a specific object
-anytype get <object-id>
+anyt get <object-id>
 
 # Create an object with body from stdin
-echo "Hello world" | anytype create note --name "My Note"
+echo "Hello world" | anyt create note --name "My Note"
 
 # Create from a template
-anytype create note --template <template-id>
+anyt create note --template <template-id>
 
 # Search across all objects
-anytype search "meeting notes"
+anyt search "meeting notes"
 
 # Set up a type alias
-anytype alias set note ot-note
+anyt alias set note ot-note
 
 # Configure default fields for a type
-anytype fields set note name,created_date,status
+anyt fields set note name,created_date,status
 ```
 
 ## Global Options
@@ -82,7 +84,7 @@ anytype fields set note name,created_date,status
 - **Field selection:** `--fields` with computed fields (`link_count`, `backlink_count`)
 - **Stdin piping:** Pipe body content via stdin or `--body -`
 - **Type aliases:** Short names for frequently used type keys
-- **Per-type default columns:** Configure with `anytype fields set`
+- **Per-type default columns:** Configure with `anyt fields set`
 - **Template support:** Create objects from templates
 
 ## Configuration
@@ -102,7 +104,7 @@ git clone https://github.com/kelvinlouis/anytype-cli.git
 cd anytype-cli
 npm install
 npm run build
-npm link        # makes `anytype` available globally
+npm link        # makes `anyt` available globally
 npm test        # run tests
 ```
 

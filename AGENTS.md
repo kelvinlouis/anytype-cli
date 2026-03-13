@@ -11,6 +11,8 @@ This file provides guidance to AI coding agents when working with code in this r
 - `npm run dev` — run from source via ts-node
 - `npx prettier --write .` — format all files (run before completing any task)
 
+After a significant change to the codebase, run `npm test` to verify all tests pass, then run `npm run build` to ensure the project compiles successfully.
+
 ## Code Quality
 
 - Write small, focused functions that do one thing (Single Responsibility)
@@ -95,5 +97,5 @@ Formatters for markdown tables, JSON, and text views. `resolveFieldValue()` reso
 - **Object name resolution**: Commands resolve object-type property IDs to human-readable names via parallel `getObject()` calls, passing a `Map<id, name>` to formatters
 - **`--where` filtering**: `field=value` (includes), `field=` (empty), `field!=` (not empty)
 - **`--sort` syntax**: `field:asc` or `field:desc` with typed comparisons; nulls sort last
-- **`--fields` defaults**: Per-type default columns persisted via `anytype fields set/remove/list`
+- **`--fields` defaults**: Per-type default columns persisted via `anyt fields set/remove/list`
 - **Test mocking**: `client.test.ts` mocks `global.fetch`; utility tests are pure functions with no mocks

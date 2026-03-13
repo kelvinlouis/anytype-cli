@@ -9,12 +9,12 @@ import { ConfigError } from '../../utils/errors.js';
 export function createAuthenticatedClient(): { client: AnytypeClient; spaceId: string } {
   const apiKey = config.getApiKey();
   if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
+    throw new ConfigError('API key not configured. Run `anyt init` first.');
   }
 
   const spaceId = config.getDefaultSpace();
   if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
+    throw new ConfigError('No default space configured. Run `anyt init` first.');
   }
 
   const client = new AnytypeClient(config.getBaseURL(), apiKey);

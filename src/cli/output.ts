@@ -459,12 +459,12 @@ export function formatTypeDetailAsMarkdown(type: ObjectType): string {
       lines.push('');
 
       const firstProp = exampleProps[0];
-      lines.push(`  anytype create ${type.key} "Name" --property ${firstProp.key}="example value"`);
+      lines.push(`  anyt create ${type.key} "Name" --property ${firstProp.key}="example value"`);
 
-      lines.push(`  anytype list ${type.key} --where ${firstProp.key}=value`);
+      lines.push(`  anyt list ${type.key} --where ${firstProp.key}=value`);
 
       const fieldKeys = exampleProps.slice(0, 5).map((p) => p.key);
-      lines.push(`  anytype list ${type.key} --fields name,${fieldKeys.join(',')}`);
+      lines.push(`  anyt list ${type.key} --fields name,${fieldKeys.join(',')}`);
     }
   } else {
     lines.push('');

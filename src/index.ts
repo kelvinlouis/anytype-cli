@@ -18,7 +18,7 @@ const CLI_DESCRIPTION = 'CLI tool for interacting with Anytype objects';
 const program = new Command();
 
 program
-  .name('anytype')
+  .name('anyt')
   .description(CLI_DESCRIPTION)
   .version(CLI_VERSION, '-v, --version', 'Output version number')
   .option('--verbose', 'Show detailed output and errors', false)

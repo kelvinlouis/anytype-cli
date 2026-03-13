@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "type": "module",
   "bin": {
-    "anytype": "./dist/index.js"
+    "anyt": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --outDir dist --dts",
