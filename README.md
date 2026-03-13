@@ -8,7 +8,7 @@ The executable for this CLI is **`anyt`** (not `anytype`) to avoid clashing with
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24+
 - [Anytype Desktop](https://anytype.io/) running (exposes local API on `http://127.0.0.1:31009`)
 - An API key from Anytype Desktop settings
 

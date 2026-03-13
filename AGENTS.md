@@ -2,6 +2,10 @@
 
 This file provides guidance to AI coding agents when working with code in this repository.
 
+## Setup
+
+Before running any npm commands, ensure the correct Node.js version is active by running `nvm use`. The required version is specified in `.nvmrc`.
+
 ## Commands
 
 - `npm run build` — bundle with tsup (src/index.ts → dist/index.js, ESM)
