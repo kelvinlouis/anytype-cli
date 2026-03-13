@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   parsePropertyFlag,
   buildPropertyPayload,
   collectProperty,
   toPropertyPayloads,
+  resolveTagProperties,
 } from './properties.js';
+import type { AnytypeClient } from '../api/client.js';
+import type { TypeProperty } from '../api/types.js';
 
 describe('parsePropertyFlag', () => {
   it('should parse simple key=value', () => {
@@ -75,6 +78,32 @@ describe('buildPropertyPayload - auto-detection', () => {
     expect(result).toEqual({ key: 'done', checkbox: false });
   });
 
+  it('should detect checkbox for yes (case-insensitive)', () => {
+    expect(buildPropertyPayload({ key: 'done', type: undefined, value: 'yes' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: undefined, value: 'Yes' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: undefined, value: 'YES' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+  });
+
+  it('should detect checkbox for no (case-insensitive)', () => {
+    expect(buildPropertyPayload({ key: 'done', type: undefined, value: 'no' })).toEqual({
+      key: 'done',
+      checkbox: false,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: undefined, value: 'No' })).toEqual({
+      key: 'done',
+      checkbox: false,
+    });
+  });
+
   it('should detect number for integers', () => {
     const result = buildPropertyPayload({ key: 'count', type: undefined, value: '42' });
     expect(result).toEqual({ key: 'count', number: 42 });
@@ -140,9 +169,50 @@ describe('buildPropertyPayload - explicit types', () => {
     expect(result).toEqual({ key: 'done', checkbox: true });
   });
 
+  it('should accept yes/Yes/YES as truthy for explicit checkbox', () => {
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'yes' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'Yes' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'YES' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+  });
+
+  it('should accept true/True/TRUE as truthy for explicit checkbox', () => {
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'True' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'TRUE' })).toEqual({
+      key: 'done',
+      checkbox: true,
+    });
+  });
+
   it('should use checkbox false for non-true values', () => {
     const result = buildPropertyPayload({ key: 'done', type: 'checkbox', value: '0' });
     expect(result).toEqual({ key: 'done', checkbox: false });
+  });
+
+  it('should accept no/No/false as falsy for explicit checkbox', () => {
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'no' })).toEqual({
+      key: 'done',
+      checkbox: false,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'No' })).toEqual({
+      key: 'done',
+      checkbox: false,
+    });
+    expect(buildPropertyPayload({ key: 'done', type: 'checkbox', value: 'false' })).toEqual({
+      key: 'done',
+      checkbox: false,
+    });
   });
 
   it('should use date when explicitly set', () => {
@@ -216,5 +286,131 @@ describe('toPropertyPayloads', () => {
       { key: 'done', checkbox: true },
       { key: 'url', url: 'https://example.com' },
     ]);
+  });
+
+  it('should merge repeated same-key multi_select properties', () => {
+    const schema = new Map([['tag', 'multi_select']]);
+    const parsed = [
+      { key: 'tag', type: undefined as string | undefined, value: 'frontend' },
+      { key: 'tag', type: undefined as string | undefined, value: 'react' },
+      { key: 'url', type: undefined as string | undefined, value: 'https://example.com' },
+    ];
+    const result = toPropertyPayloads(parsed, schema);
+    expect(result).toEqual([
+      { key: 'tag', multi_select: ['frontend', 'react'] },
+      { key: 'url', url: 'https://example.com' },
+    ]);
+  });
+
+  it('should merge repeated multi_select with comma-separated values', () => {
+    const schema = new Map([['tag', 'multi_select']]);
+    const parsed = [
+      { key: 'tag', type: undefined as string | undefined, value: 'frontend,react' },
+      { key: 'tag', type: undefined as string | undefined, value: 'typescript' },
+    ];
+    const result = toPropertyPayloads(parsed, schema);
+    expect(result).toEqual([{ key: 'tag', multi_select: ['frontend', 'react', 'typescript'] }]);
+  });
+});
+
+describe('resolveTagProperties', () => {
+  const existingTags = [
+    { id: 'tag-id-1', key: 'key-1', name: '⭐' },
+    { id: 'tag-id-5', key: 'key-5', name: '⭐⭐⭐⭐⭐' },
+  ];
+
+  const ratingProp: TypeProperty = {
+    object: 'property',
+    id: 'prop-rating',
+    key: 'rating',
+    name: 'Rating',
+    format: 'select',
+  };
+
+  const tagProp: TypeProperty = {
+    object: 'property',
+    id: 'prop-tag',
+    key: 'tag',
+    name: 'Tag',
+    format: 'multi_select',
+  };
+
+  function mockClient(tags: typeof existingTags) {
+    return {
+      listTags: vi.fn().mockResolvedValue(tags),
+      createTag: vi.fn().mockResolvedValue({ id: 'new-tag-id', name: 'new' }),
+    } as unknown as AnytypeClient;
+  }
+
+  it('should resolve select tag by name', async () => {
+    const client = mockClient(existingTags);
+    const result = await resolveTagProperties(
+      [{ key: 'rating', select: '⭐⭐⭐⭐⭐' }],
+      [ratingProp],
+      client,
+      'space-1',
+    );
+    expect(result).toEqual([{ key: 'rating', select: 'tag-id-5' }]);
+  });
+
+  it('should resolve select tag by id', async () => {
+    const client = mockClient(existingTags);
+    const result = await resolveTagProperties(
+      [{ key: 'rating', select: 'tag-id-1' }],
+      [ratingProp],
+      client,
+      'space-1',
+    );
+    expect(result).toEqual([{ key: 'rating', select: 'tag-id-1' }]);
+  });
+
+  it('should resolve select tag by key', async () => {
+    const client = mockClient(existingTags);
+    const result = await resolveTagProperties(
+      [{ key: 'rating', select: 'key-5' }],
+      [ratingProp],
+      client,
+      'space-1',
+    );
+    expect(result).toEqual([{ key: 'rating', select: 'tag-id-5' }]);
+  });
+
+  it('should throw for invalid select value with available options', async () => {
+    const client = mockClient(existingTags);
+    await expect(
+      resolveTagProperties([{ key: 'rating', select: '5' }], [ratingProp], client, 'space-1'),
+    ).rejects.toThrow('Invalid value "5" for select property "Rating"');
+  });
+
+  it('should include available options in select error message', async () => {
+    const client = mockClient(existingTags);
+    await expect(
+      resolveTagProperties([{ key: 'rating', select: 'invalid' }], [ratingProp], client, 'space-1'),
+    ).rejects.toThrow('⭐, ⭐⭐⭐⭐⭐');
+  });
+
+  it('should auto-create tags for multi_select', async () => {
+    const client = mockClient([]);
+    const result = await resolveTagProperties(
+      [{ key: 'tag', multi_select: ['new-tag'] }],
+      [tagProp],
+      client,
+      'space-1',
+    );
+    expect(result).toEqual([{ key: 'tag', multi_select: ['new-tag-id'] }]);
+    expect(client.createTag).toHaveBeenCalled();
+  });
+
+  it('should not auto-create tags for select', async () => {
+    const client = mockClient([]);
+    await expect(
+      resolveTagProperties(
+        [{ key: 'rating', select: 'nonexistent' }],
+        [ratingProp],
+        client,
+        'space-1',
+      ),
+    ).rejects.toThrow('Invalid value');
+    expect(client.createTag).not.toHaveBeenCalled();
   });
 });

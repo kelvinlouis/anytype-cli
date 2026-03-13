@@ -21,6 +21,9 @@ This file provides guidance to AI coding agents when working with code in this r
 - Prefer early returns over deeply nested conditionals
 - Keep function arguments to 3 or fewer; group related args into an object
 - Don't repeat yourself — but only extract shared logic when duplication is real, not speculative
+- Shared type definitions (exported for use by other modules) must live in a dedicated type file (e.g., `foo.types.ts`); do not mix exported types with function implementations
+- A single type file may contain multiple related types
+- Private types (used only within the file) are fine to keep inline but must be placed at the top of the file, right after import statements — before any variable declarations, constants, or function definitions
 
 ## TDD Workflow
 

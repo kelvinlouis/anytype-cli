@@ -142,16 +142,19 @@ describe('ConfigManager', () => {
   });
 
   describe('General Config Management', () => {
-    it('should get entire config', () => {
+    it('should include apiKey in full config', () => {
       config.setApiKey('test-key');
+      expect(config.getConfig().apiKey).toBe('test-key');
+    });
+
+    it('should include defaultSpace in full config', () => {
       config.setDefaultSpace('space-123');
+      expect(config.getConfig().defaultSpace).toBe('space-123');
+    });
+
+    it('should include aliases in full config', () => {
       config.addAlias('member', 'team_member');
-
-      const fullConfig = config.getConfig();
-
-      expect(fullConfig.apiKey).toBe('test-key');
-      expect(fullConfig.defaultSpace).toBe('space-123');
-      expect(fullConfig.aliases).toEqual({ member: 'team_member' });
+      expect(config.getConfig().aliases).toEqual({ member: 'team_member' });
     });
 
     it('should set generic config value', () => {

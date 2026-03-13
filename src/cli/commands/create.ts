@@ -1,47 +1,30 @@
 import { Command } from 'commander';
 import { readFileSync } from 'fs';
-import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
-import { ConfigError, ValidationError, handleError } from '../../utils/errors.js';
+import { ValidationError, handleError } from '../../utils/errors.js';
+import { resolveLinkProperty } from '../../utils/links.js';
 import {
   collectProperty,
   toPropertyPayloads,
   resolveTagProperties,
-  type ParsedProperty,
 } from '../../utils/properties.js';
+import type { ParsedProperty } from '../../utils/properties.types.js';
+import { readStdinIfAvailable } from '../../utils/stdin.js';
 import { formatAsJson } from '../output.js';
+import { createAuthenticatedClient } from './shared.js';
 
-/**
- * Read from stdin if available
- */
-async function readStdinIfAvailable(): Promise<string> {
-  return new Promise((resolve) => {
-    // If stdin is a TTY (terminal), there's no piped data
-    if (process.stdin.isTTY) {
-      resolve('');
-      return;
-    }
-
-    let data = '';
-    process.stdin.setEncoding('utf-8');
-
-    process.stdin.on('data', (chunk) => {
-      data += chunk;
-    });
-
-    process.stdin.on('end', () => {
-      resolve(data);
-    });
-
-    process.stdin.on('error', () => {
-      resolve('');
-    });
-  });
+interface CreateOptions {
+  body?: string;
+  bodyFile?: string;
+  template?: boolean | string;
+  property: ParsedProperty[];
+  linkTo?: string;
+  linkProperty?: string;
+  dryRun?: boolean;
+  json?: boolean;
+  verbose?: boolean;
 }
 
-/**
- * Create the `create` command
- */
 export function createCreateCommand(): Command {
   const command = new Command('create')
     .arguments('<type> [name]')
@@ -56,6 +39,10 @@ export function createCreateCommand(): Command {
     )
     .option('--template [id_or_name]', 'Use a template (omit value for default)')
     .option('--link-to <id>', 'Link to another object by ID')
+    .option(
+      '--link-property <key>',
+      'Property key for linking (required when type has multiple object properties)',
+    )
     .option('--dry-run', 'Preview without creating')
     .option('--json', 'Output as JSON instead of markdown')
     .option('--verbose', 'Show detailed output')
@@ -70,36 +57,12 @@ export function createCreateCommand(): Command {
   return command;
 }
 
-interface CreateOptions {
-  body?: string;
-  bodyFile?: string;
-  template?: boolean | string;
-  property: ParsedProperty[];
-  linkTo?: string;
-  dryRun?: boolean;
-  json?: boolean;
-  verbose?: boolean;
-}
-
-/**
- * Create a new object
- */
 async function createAction(
   typeInput: string,
   name: string | undefined,
   options: CreateOptions,
 ): Promise<void> {
-  // Get API key
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  // Get default space
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
+  const { client, spaceId } = createAuthenticatedClient();
 
   // Resolve type alias
   const typeKey = config.resolveAlias(typeInput);
@@ -119,14 +82,12 @@ async function createAction(
     }
   }
 
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
-
   // Look up the type schema so we can serialize properties with the correct format,
   // resolve tag names for select/multi_select properties, and resolve templates
   let propertySchema: Map<string, string> | undefined;
   let typeProperties: import('../../api/types.js').TypeProperty[] | undefined;
   let typeDef: import('../../api/types.js').ObjectType | undefined;
-  if (options.property.length > 0 || options.template) {
+  if (options.property.length > 0 || options.template || options.linkTo) {
     try {
       typeDef = await client.resolveType(spaceId, typeKey);
       if (typeDef.properties) {
@@ -190,21 +151,28 @@ async function createAction(
   }
   const createdObject = await client.createObject(spaceId, data);
 
-  // Handle link-to option
+  // Link to another object after creation
   if (options.linkTo) {
-    // This would require updating the object with relation info
-    // For now, just note it was created
-    console.log(`Created object: ${createdObject.id}`);
-    console.log(`To link to ${options.linkTo}, use:`);
-    console.log(`  anytype update ${createdObject.id} --link-to ${options.linkTo}`);
+    if (!typeDef?.properties) {
+      throw new ValidationError(
+        `Could not resolve type "${typeInput}" to determine link property.`,
+      );
+    }
+    const linkProp = resolveLinkProperty(typeDef.properties, options.linkProperty);
+    await client.updateObject(spaceId, createdObject.id, {
+      properties: [{ key: linkProp.key, format: 'objects', objects: [options.linkTo] }],
+    });
+  }
+
+  // Output result
+  if (options.json) {
+    console.log(formatAsJson(createdObject));
   } else {
-    // Output result
-    if (options.json) {
-      console.log(formatAsJson(createdObject));
-    } else {
-      console.log(`✓ Created object: ${createdObject.id}`);
-      console.log(`  Name: ${createdObject.name}`);
-      console.log(`  Type: ${createdObject.type_key}`);
+    console.log(`✓ Created object: ${createdObject.id}`);
+    console.log(`  Name: ${createdObject.name}`);
+    console.log(`  Type: ${createdObject.type_key}`);
+    if (options.linkTo) {
+      console.log(`  Linked to: ${options.linkTo}`);
     }
   }
 }

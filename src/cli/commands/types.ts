@@ -1,12 +1,14 @@
 import { Command } from 'commander';
-import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
-import { ConfigError, handleError } from '../../utils/errors.js';
+import { handleError } from '../../utils/errors.js';
 import { formatAsJson, formatTypesAsMarkdown, formatTypeDetailAsMarkdown } from '../output.js';
+import { createAuthenticatedClient } from './shared.js';
 
-/**
- * Create the `types` command
- */
+interface TypesOptions {
+  json?: boolean;
+  verbose?: boolean;
+}
+
 export function createTypesCommand(): Command {
   const command = new Command('types')
     .description('List all object types, or show detail for a specific type')
@@ -27,29 +29,8 @@ export function createTypesCommand(): Command {
   return command;
 }
 
-interface TypesOptions {
-  json?: boolean;
-  verbose?: boolean;
-}
-
-/**
- * List all types in the space
- */
 async function typesAction(options: TypesOptions): Promise<void> {
-  // Get API key
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  // Get default space
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
-
-  // Fetch types
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const { client, spaceId } = createAuthenticatedClient();
   const types = await client.getTypes(spaceId);
 
   // Output results
@@ -64,17 +45,7 @@ async function typesAction(options: TypesOptions): Promise<void> {
  * Show detail for a specific type including its properties
  */
 async function typeDetailAction(typeArg: string, options: TypesOptions): Promise<void> {
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
-
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const { client, spaceId } = createAuthenticatedClient();
 
   // Resolve alias (e.g., "1on1" -> "ot-meetingNote")
   const typeKey = config.resolveAlias(typeArg);

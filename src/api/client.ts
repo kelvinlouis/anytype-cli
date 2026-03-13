@@ -1,3 +1,4 @@
+import { DEFAULT_BASE_URL } from '../constants.js';
 import { ConnectionError, ValidationError } from '../utils/errors.js';
 import type { Space, AnyObject, ObjectType, SearchResult, APIError, Tag } from './types.js';
 
@@ -15,13 +16,42 @@ interface PaginatedResponse<T> {
 }
 
 /**
+ * Build an endpoint path, appending query parameters if any exist.
+ */
+function buildEndpointWithParams(
+  base: string,
+  params: Record<string, string | number | undefined>,
+): string {
+  const queryParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) queryParams.append(key, String(value));
+  }
+  return queryParams.size > 0 ? `${base}?${queryParams}` : base;
+}
+
+/**
+ * Unwrap a response that may be either `{ [key]: T }` or `T` directly.
+ * The Anytype API is inconsistent about wrapping single-resource responses.
+ */
+function unwrapResponse<T extends { id?: string; key?: string }>(
+  response: Record<string, unknown>,
+  key: string,
+): T {
+  if (key in response && response[key] && typeof response[key] === 'object') {
+    const inner = response[key] as T;
+    if (inner.id || inner.key) return inner;
+  }
+  return response as unknown as T;
+}
+
+/**
  * Typed API client for Anytype
  */
 export class AnytypeClient {
   private baseURL: string;
   private apiKey: string;
 
-  constructor(baseURL: string = 'http://127.0.0.1:31009', apiKey: string) {
+  constructor(baseURL: string = DEFAULT_BASE_URL, apiKey: string) {
     this.baseURL = baseURL;
     this.apiKey = apiKey;
   }
@@ -44,44 +74,16 @@ export class AnytypeClient {
       });
 
       if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        let errorData: APIError | string = `HTTP ${response.status}`;
-
-        if (contentType?.includes('application/json')) {
-          try {
-            errorData = await response.json();
-          } catch {
-            errorData = await response.text();
-          }
-        } else {
-          errorData = await response.text();
-        }
-
-        // Handle specific HTTP errors
-        if (response.status === 401) {
-          throw new ValidationError('Invalid API key. Check your configuration.');
-        }
-
-        if (response.status === 404) {
-          throw new ValidationError(`Not found: ${endpoint}`);
-        }
-
-        throw new ValidationError(
-          `API error: ${typeof errorData === 'string' ? errorData : (errorData as APIError).message || JSON.stringify(errorData)}`,
-        );
+        await this.handleHttpError(response, endpoint);
       }
 
       return (await response.json()) as T;
     } catch (error) {
-      // Re-throw ValidationErrors as-is
-      if (error instanceof ValidationError) {
-        throw error;
-      }
+      if (error instanceof ValidationError) throw error;
 
-      // Network/connection errors
       if (error instanceof TypeError) {
         throw new ConnectionError(
-          'Failed to connect to Anytype. Ensure Anytype is running on http://127.0.0.1:31009',
+          `Failed to connect to Anytype. Ensure Anytype is running on ${DEFAULT_BASE_URL}`,
           error as Error,
         );
       }
@@ -91,16 +93,40 @@ export class AnytypeClient {
   }
 
   /**
-   * Get all spaces
+   * Parse an error response and throw the appropriate error type.
    */
+  private async handleHttpError(response: Response, endpoint: string): Promise<never> {
+    const contentType = response.headers.get('content-type');
+    let errorData: APIError | string = `HTTP ${response.status}`;
+
+    if (contentType?.includes('application/json')) {
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = await response.text();
+      }
+    } else {
+      errorData = await response.text();
+    }
+
+    if (response.status === 401) {
+      throw new ValidationError('Invalid API key. Check your configuration.');
+    }
+
+    if (response.status === 404) {
+      throw new ValidationError(`Not found: ${endpoint}`);
+    }
+
+    throw new ValidationError(
+      `API error: ${typeof errorData === 'string' ? errorData : (errorData as APIError).message || JSON.stringify(errorData)}`,
+    );
+  }
+
   async getSpaces(): Promise<Space[]> {
     const response = await this.request<PaginatedResponse<Space>>('GET', '/v1/spaces');
     return response.data;
   }
 
-  /**
-   * Get all types in a space
-   */
   async getTypes(spaceId: string): Promise<ObjectType[]> {
     const response = await this.request<PaginatedResponse<ObjectType>>(
       'GET',
@@ -109,9 +135,6 @@ export class AnytypeClient {
     return response.data;
   }
 
-  /**
-   * Get templates for a type
-   */
   async getTemplates(spaceId: string, typeId: string): Promise<AnyObject[]> {
     const response = await this.request<PaginatedResponse<AnyObject>>(
       'GET',
@@ -120,44 +143,26 @@ export class AnytypeClient {
     return response.data;
   }
 
-  /**
-   * Get a single template for a type
-   */
   async getTemplate(spaceId: string, typeId: string, templateId: string): Promise<AnyObject> {
-    const response = await this.request<{ template: AnyObject } | AnyObject>(
+    const response = await this.request<Record<string, unknown>>(
       'GET',
       `/v1/spaces/${spaceId}/types/${typeId}/templates/${templateId}`,
     );
-    // Handle both wrapped { template: {...} } and unwrapped response shapes
-    if ('template' in response && (response as { template: AnyObject }).template?.id) {
-      return (response as { template: AnyObject }).template;
-    }
-    return response as AnyObject;
+    return unwrapResponse<AnyObject>(response, 'template');
   }
 
-  /**
-   * Get a single type by ID or key
-   */
   async getType(spaceId: string, typeId: string): Promise<ObjectType> {
-    const response = await this.request<{ type: ObjectType } | ObjectType>(
+    const response = await this.request<Record<string, unknown>>(
       'GET',
       `/v1/spaces/${spaceId}/types/${typeId}`,
     );
-    // Handle both wrapped { type: {...} } and unwrapped response shapes
-    if ('type' in response && (response as { type: ObjectType }).type?.key) {
-      return (response as { type: ObjectType }).type;
-    }
-    return response as ObjectType;
+    return unwrapResponse<ObjectType>(response, 'type');
   }
 
   /**
    * Resolve a type by key or name, with fallback to listing all types.
-   * The types endpoint sometimes fails with short keys (e.g. "article"),
-   * so this method first tries a direct lookup, then falls back to
-   * searching through all types and fetching by ID.
    */
   async resolveType(spaceId: string, typeKey: string): Promise<ObjectType> {
-    // Try direct fetch first
     try {
       return await this.getType(spaceId, typeKey);
     } catch {
@@ -174,7 +179,6 @@ export class AnytypeClient {
       throw new ValidationError(`Type "${typeKey}" not found.`);
     }
 
-    // Fetch full type detail by ID to get properties
     try {
       return await this.getType(spaceId, match.id);
     } catch {
@@ -183,9 +187,9 @@ export class AnytypeClient {
   }
 
   /**
-   * Get objects in a space with optional filtering
-   * Note: When filtering by type, uses the search endpoint as the objects
-   * endpoint doesn't support type filtering via query params
+   * Get objects in a space with optional filtering.
+   * When filtering by type, uses the search endpoint as the objects
+   * endpoint doesn't support type filtering via query params.
    */
   async getObjects(
     spaceId: string,
@@ -195,63 +199,36 @@ export class AnytypeClient {
       offset?: number;
     },
   ): Promise<AnyObject[]> {
-    // If filtering by type, use the search endpoint
     if (filters?.type_key) {
-      const queryParams = new URLSearchParams();
-      if (filters.limit) queryParams.append('limit', String(filters.limit));
-      if (filters.offset) queryParams.append('offset', String(filters.offset));
-
-      const endpoint =
-        queryParams.size > 0
-          ? `/v1/spaces/${spaceId}/search?${queryParams}`
-          : `/v1/spaces/${spaceId}/search`;
-
-      const body = {
-        query: '',
-        types: [filters.type_key],
-      };
-
+      const endpoint = buildEndpointWithParams(`/v1/spaces/${spaceId}/search`, {
+        limit: filters.limit,
+        offset: filters.offset,
+      });
+      const body = { query: '', types: [filters.type_key] };
       const response = await this.request<PaginatedResponse<AnyObject>>('POST', endpoint, body);
       return response.data;
     }
 
-    // No type filter - use the objects endpoint
-    const queryParams = new URLSearchParams();
-    if (filters?.limit) queryParams.append('limit', String(filters.limit));
-    if (filters?.offset) queryParams.append('offset', String(filters.offset));
-
-    const endpoint =
-      queryParams.size > 0
-        ? `/v1/spaces/${spaceId}/objects?${queryParams}`
-        : `/v1/spaces/${spaceId}/objects`;
-
+    const endpoint = buildEndpointWithParams(`/v1/spaces/${spaceId}/objects`, {
+      limit: filters?.limit,
+      offset: filters?.offset,
+    });
     const response = await this.request<PaginatedResponse<AnyObject>>('GET', endpoint);
     return response.data;
   }
 
-  /**
-   * Get a single object
-   */
   async getObject(
     spaceId: string,
     objectId: string,
     options?: { format?: 'markdown' },
   ): Promise<AnyObject> {
-    const queryParams = new URLSearchParams();
-    if (options?.format) queryParams.append('format', options.format);
-
-    const endpoint =
-      queryParams.size > 0
-        ? `/v1/spaces/${spaceId}/objects/${objectId}?${queryParams}`
-        : `/v1/spaces/${spaceId}/objects/${objectId}`;
-
+    const endpoint = buildEndpointWithParams(`/v1/spaces/${spaceId}/objects/${objectId}`, {
+      format: options?.format,
+    });
     const response = await this.request<{ object: AnyObject }>('GET', endpoint);
     return response.object;
   }
 
-  /**
-   * Create an object
-   */
   async createObject(
     spaceId: string,
     data: {
@@ -262,21 +239,14 @@ export class AnytypeClient {
       properties?: Array<{ key: string; [field: string]: unknown }>;
     },
   ): Promise<AnyObject> {
-    const response = await this.request<{ object: AnyObject } | AnyObject>(
+    const response = await this.request<Record<string, unknown>>(
       'POST',
       `/v1/spaces/${spaceId}/objects`,
       data,
     );
-    // Handle both wrapped { object: {...} } and unwrapped response shapes
-    if ('object' in response && (response as { object: AnyObject }).object?.id) {
-      return (response as { object: AnyObject }).object;
-    }
-    return response as AnyObject;
+    return unwrapResponse<AnyObject>(response, 'object');
   }
 
-  /**
-   * Update an object
-   */
   async updateObject(
     spaceId: string,
     objectId: string,
@@ -286,28 +256,22 @@ export class AnytypeClient {
       properties: Array<{ key: string; [field: string]: unknown }>;
     }>,
   ): Promise<AnyObject> {
-    const response = await this.request<{ object: AnyObject } | AnyObject>(
+    // The Anytype API accepts "body" for POST (create) but requires "markdown" for PATCH (update)
+    const { body, ...rest } = data;
+    const payload = body !== undefined ? { ...rest, markdown: body } : rest;
+
+    const response = await this.request<Record<string, unknown>>(
       'PATCH',
       `/v1/spaces/${spaceId}/objects/${objectId}`,
-      data,
+      payload,
     );
-    // Handle both wrapped { object: {...} } and unwrapped response shapes
-    if ('object' in response && (response as { object: AnyObject }).object?.id) {
-      return (response as { object: AnyObject }).object;
-    }
-    return response as AnyObject;
+    return unwrapResponse<AnyObject>(response, 'object');
   }
 
-  /**
-   * Archive an object
-   */
   async deleteObject(spaceId: string, objectId: string): Promise<void> {
     await this.request<void>('DELETE', `/v1/spaces/${spaceId}/objects/${objectId}`);
   }
 
-  /**
-   * Global search
-   */
   async search(
     query: string,
     filters?: {
@@ -316,12 +280,10 @@ export class AnytypeClient {
       offset?: number;
     },
   ): Promise<SearchResult[]> {
-    const queryParams = new URLSearchParams();
-    if (filters?.limit) queryParams.append('limit', String(filters.limit));
-    if (filters?.offset) queryParams.append('offset', String(filters.offset));
-
-    const endpoint = queryParams.size > 0 ? `/v1/search?${queryParams}` : '/v1/search';
-
+    const endpoint = buildEndpointWithParams('/v1/search', {
+      limit: filters?.limit,
+      offset: filters?.offset,
+    });
     const body: Record<string, unknown> = { query };
     if (filters?.type_key) body.types = [filters.type_key];
 
@@ -329,9 +291,6 @@ export class AnytypeClient {
     return response.data;
   }
 
-  /**
-   * Search within a specific space
-   */
   async searchInSpace(
     spaceId: string,
     query: string,
@@ -341,15 +300,10 @@ export class AnytypeClient {
       offset?: number;
     },
   ): Promise<AnyObject[]> {
-    const queryParams = new URLSearchParams();
-    if (filters?.limit) queryParams.append('limit', String(filters.limit));
-    if (filters?.offset) queryParams.append('offset', String(filters.offset));
-
-    const endpoint =
-      queryParams.size > 0
-        ? `/v1/spaces/${spaceId}/search?${queryParams}`
-        : `/v1/spaces/${spaceId}/search`;
-
+    const endpoint = buildEndpointWithParams(`/v1/spaces/${spaceId}/search`, {
+      limit: filters?.limit,
+      offset: filters?.offset,
+    });
     const body: Record<string, unknown> = { query };
     if (filters?.type_key) body.types = [filters.type_key];
 
@@ -357,9 +311,6 @@ export class AnytypeClient {
     return response.data;
   }
 
-  /**
-   * List tags for a property
-   */
   async listTags(spaceId: string, propertyId: string): Promise<Tag[]> {
     const response = await this.request<PaginatedResponse<Tag>>(
       'GET',
@@ -368,23 +319,16 @@ export class AnytypeClient {
     return response.data;
   }
 
-  /**
-   * Create a tag for a property
-   */
   async createTag(
     spaceId: string,
     propertyId: string,
     data: { name: string; color?: string },
   ): Promise<Tag> {
-    const response = await this.request<{ tag: Tag } | Tag>(
+    const response = await this.request<Record<string, unknown>>(
       'POST',
       `/v1/spaces/${spaceId}/properties/${propertyId}/tags`,
       data,
     );
-    // Handle both wrapped { tag: {...} } and unwrapped response shapes
-    if ('tag' in response && (response as { tag: Tag }).tag?.id) {
-      return (response as { tag: Tag }).tag;
-    }
-    return response as Tag;
+    return unwrapResponse<Tag>(response, 'tag');
   }
 }

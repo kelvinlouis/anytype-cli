@@ -1,12 +1,18 @@
 import { Command } from 'commander';
-import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
-import { ConfigError, handleError } from '../../utils/errors.js';
+import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, DEFAULT_SEARCH_OFFSET } from '../../constants.js';
+import { handleError } from '../../utils/errors.js';
 import { formatAsJson, formatSearchResultsAsMarkdown } from '../output.js';
+import { createAuthenticatedClient } from './shared.js';
 
-/**
- * Create the `search` command
- */
+interface SearchOptions {
+  type?: string;
+  limit?: string;
+  offset?: string;
+  json?: boolean;
+  verbose?: boolean;
+}
+
 export function createSearchCommand(): Command {
   const command = new Command('search')
     .arguments('<query>')
@@ -27,28 +33,13 @@ export function createSearchCommand(): Command {
   return command;
 }
 
-interface SearchOptions {
-  type?: string;
-  limit?: string;
-  offset?: string;
-  json?: boolean;
-  verbose?: boolean;
-}
-
-/**
- * Search for objects
- */
 async function searchAction(query: string, options: SearchOptions): Promise<void> {
-  // Get API key
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  // Fetch search results
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
-  const limit = Math.min(parseInt(options.limit || '20', 10), 1000);
-  const offset = Math.max(parseInt(options.offset || '0', 10), 0);
+  const { client } = createAuthenticatedClient();
+  const limit = Math.min(
+    parseInt(options.limit || String(DEFAULT_SEARCH_LIMIT), 10),
+    MAX_SEARCH_LIMIT,
+  );
+  const offset = Math.max(parseInt(options.offset || String(DEFAULT_SEARCH_OFFSET), 10), 0);
 
   let typeKey: string | undefined;
   if (options.type) {

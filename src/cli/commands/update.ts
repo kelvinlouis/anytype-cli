@@ -1,47 +1,31 @@
 import { Command } from 'commander';
 import { readFileSync } from 'fs';
-import { AnytypeClient } from '../../api/client.js';
-import { config } from '../../config/index.js';
-import { ConfigError, NotFoundError, handleError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError, handleError } from '../../utils/errors.js';
+import { resolveLinkProperty } from '../../utils/links.js';
 import {
   collectProperty,
   toPropertyPayloads,
   resolveTagProperties,
-  type ParsedProperty,
 } from '../../utils/properties.js';
+import type { ParsedProperty } from '../../utils/properties.types.js';
+import { readStdinIfAvailable } from '../../utils/stdin.js';
 import { formatAsJson } from '../output.js';
+import { createAuthenticatedClient } from './shared.js';
 
-/**
- * Read from stdin if available
- */
-async function readStdinIfAvailable(): Promise<string> {
-  return new Promise((resolve) => {
-    // If stdin is a TTY (terminal), there's no piped data
-    if (process.stdin.isTTY) {
-      resolve('');
-      return;
-    }
-
-    let data = '';
-    process.stdin.setEncoding('utf-8');
-
-    process.stdin.on('data', (chunk) => {
-      data += chunk;
-    });
-
-    process.stdin.on('end', () => {
-      resolve(data);
-    });
-
-    process.stdin.on('error', () => {
-      resolve('');
-    });
-  });
+interface UpdateOptions {
+  name?: string;
+  body?: string;
+  append?: string;
+  bodyFile?: string;
+  property: ParsedProperty[];
+  linkTo?: string;
+  linkProperty?: string;
+  unlinkFrom?: string;
+  dryRun?: boolean;
+  json?: boolean;
+  verbose?: boolean;
 }
 
-/**
- * Create the `update` command
- */
 export function createUpdateCommand(): Command {
   const command = new Command('update')
     .arguments('<identifier>')
@@ -57,6 +41,10 @@ export function createUpdateCommand(): Command {
       [],
     )
     .option('--link-to <id>', 'Link to another object by ID')
+    .option(
+      '--link-property <key>',
+      'Property key for linking (required when type has multiple object properties)',
+    )
     .option('--unlink-from <id>', 'Remove link to object')
     .option('--dry-run', 'Preview without updating')
     .option('--json', 'Output as JSON instead of markdown')
@@ -72,40 +60,15 @@ export function createUpdateCommand(): Command {
   return command;
 }
 
-interface UpdateOptions {
-  name?: string;
-  body?: string;
-  append?: string;
-  bodyFile?: string;
-  property: ParsedProperty[];
-  linkTo?: string;
-  unlinkFrom?: string;
-  dryRun?: boolean;
-  json?: boolean;
-  verbose?: boolean;
-}
-
-/**
- * Update an object
- */
 async function updateAction(identifier: string, options: UpdateOptions): Promise<void> {
-  // Get API key
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  // Get default space
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
-
-  // Fetch object to get current state
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const { client, spaceId } = createAuthenticatedClient();
   let object;
   try {
-    object = await client.getObject(spaceId, identifier);
+    object = await client.getObject(
+      spaceId,
+      identifier,
+      options.append ? { format: 'markdown' } : undefined,
+    );
   } catch {
     throw new NotFoundError(`Object "${identifier}" not found`);
   }
@@ -126,15 +89,25 @@ async function updateAction(identifier: string, options: UpdateOptions): Promise
       updateData.body = options.body;
     }
   } else if (options.append) {
-    updateData.body = (object.body || '') + '\n' + options.append;
+    let existingBody = object.body || object.markdown || '';
+    // The API's markdown response includes the description property as the first line.
+    // Strip it so we only send back actual body content, otherwise the API re-parses
+    // the description as body and existing body content gets lost.
+    const descProp = object.properties?.find((p) => p.key === 'description');
+    if (descProp?.text && existingBody.startsWith(descProp.text)) {
+      existingBody = existingBody.slice(descProp.text.length).replace(/^\s*\n?/, '');
+    }
+    updateData.body = existingBody
+      ? existingBody.trimEnd() + '\n' + options.append
+      : options.append;
   } else if (options.bodyFile) {
     updateData.body = readFileSync(options.bodyFile, 'utf-8');
   }
 
-  // Build properties array for API, using the type schema for correct formats
-  if (options.property.length > 0) {
-    let propertySchema: Map<string, string> | undefined;
-    let typeProperties: import('../../api/types.js').TypeProperty[] | undefined;
+  // Resolve type schema when needed for properties or linking
+  let propertySchema: Map<string, string> | undefined;
+  let typeProperties: import('../../api/types.js').TypeProperty[] | undefined;
+  if (options.property.length > 0 || options.linkTo || options.unlinkFrom) {
     const typeKey = object.type?.key || object.type_key;
     if (typeKey) {
       try {
@@ -144,14 +117,40 @@ async function updateAction(identifier: string, options: UpdateOptions): Promise
           propertySchema = new Map(typeDef.properties.map((p) => [p.key, p.format]));
         }
       } catch {
-        // Fall back to auto-detection
+        // Fall back to auto-detection for properties
       }
     }
+  }
+
+  // Build properties array for API, using the type schema for correct formats
+  if (options.property.length > 0) {
     let properties = toPropertyPayloads(options.property, propertySchema);
     if (typeProperties) {
       properties = await resolveTagProperties(properties, typeProperties, client, spaceId);
     }
     updateData.properties = properties;
+  }
+
+  // Handle link/unlink via the type's settable object property
+  if (options.linkTo || options.unlinkFrom) {
+    if (!typeProperties) {
+      throw new ValidationError('Could not resolve type to determine link property.');
+    }
+    const linkProp = resolveLinkProperty(typeProperties, options.linkProperty);
+
+    const existingObjects = object.properties?.find((p) => p.key === linkProp.key)?.objects ?? [];
+    let updatedObjects = [...existingObjects];
+
+    if (options.linkTo && !updatedObjects.includes(options.linkTo)) {
+      updatedObjects.push(options.linkTo);
+    }
+    if (options.unlinkFrom) {
+      updatedObjects = updatedObjects.filter((id) => id !== options.unlinkFrom);
+    }
+
+    const linkPayload = { key: linkProp.key, format: 'objects', objects: updatedObjects };
+    const existing = (updateData.properties as Array<Record<string, unknown>>) ?? [];
+    updateData.properties = [...existing, linkPayload];
   }
 
   // Dry run
@@ -182,6 +181,8 @@ async function updateAction(identifier: string, options: UpdateOptions): Promise
       if (options.name) console.log(`  Name: ${updated.name}`);
       if (options.body || options.append || options.bodyFile) console.log(`  Body updated`);
       if (options.property.length > 0) console.log(`  Properties updated`);
+      if (options.linkTo) console.log(`  Linked to: ${options.linkTo}`);
+      if (options.unlinkFrom) console.log(`  Unlinked from: ${options.unlinkFrom}`);
     }
   } else {
     console.log(`No changes to apply`);

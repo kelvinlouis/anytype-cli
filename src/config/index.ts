@@ -2,17 +2,10 @@ import Conf from 'conf';
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, unlinkSync } from 'fs';
+import { DEFAULT_BASE_URL } from '../constants.js';
+import type { ConfigSchema } from './types.js';
 
-/**
- * Configuration schema
- */
-export interface ConfigSchema {
-  apiKey?: string;
-  defaultSpace?: string;
-  aliases?: Record<string, string>;
-  typeFields?: Record<string, string[]>;
-  baseURL?: string;
-}
+export type { ConfigSchema } from './types.js';
 
 /**
  * Configuration manager using conf package
@@ -143,44 +136,35 @@ class ConfigManager {
     return aliases[alias] || alias;
   }
 
-  /**
-   * Get default fields for a type key
-   */
-  getTypeFields(typeKey: string): string[] | undefined {
-    const typeFields = this.conf.get('typeFields') || {};
-    return typeFields[typeKey];
+  private getTypeFieldsMap(): Record<string, string[]> {
+    return this.conf.get('typeFields') || {};
   }
 
-  /**
-   * Set default fields for a type key
-   */
+  getTypeFields(typeKey: string): string[] | undefined {
+    return this.getTypeFieldsMap()[typeKey];
+  }
+
   setTypeFields(typeKey: string, fields: string[]): void {
-    const typeFields = this.conf.get('typeFields') || {};
+    const typeFields = this.getTypeFieldsMap();
     typeFields[typeKey] = fields;
     this.conf.set('typeFields', typeFields);
   }
 
-  /**
-   * Remove default fields for a type key
-   */
   removeTypeFields(typeKey: string): void {
-    const typeFields = this.conf.get('typeFields') || {};
+    const typeFields = this.getTypeFieldsMap();
     delete typeFields[typeKey];
     this.conf.set('typeFields', typeFields);
   }
 
-  /**
-   * Get all type field configurations
-   */
   getAllTypeFields(): Record<string, string[]> {
-    return this.conf.get('typeFields') || {};
+    return this.getTypeFieldsMap();
   }
 
   /**
    * Get base URL
    */
   getBaseURL(): string {
-    return this.conf.get('baseURL') || 'http://127.0.0.1:31009';
+    return this.conf.get('baseURL') || DEFAULT_BASE_URL;
   }
 
   /**

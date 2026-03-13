@@ -1,12 +1,15 @@
 import { Command } from 'commander';
-import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
-import { ConfigError, NotFoundError, handleError } from '../../utils/errors.js';
+import { NAME_LOOKUP_LIMIT } from '../../constants.js';
+import { NotFoundError, handleError } from '../../utils/errors.js';
 import { formatAsJson, formatObjectAsText } from '../output.js';
+import { createAuthenticatedClient, resolveObjectNames } from './shared.js';
 
-/**
- * Create the `get` command
- */
+interface GetOptions {
+  json?: boolean;
+  verbose?: boolean;
+}
+
 export function createGetCommand(): Command {
   const command = new Command('get')
     .arguments('<type> <identifier>')
@@ -24,36 +27,15 @@ export function createGetCommand(): Command {
   return command;
 }
 
-interface GetOptions {
-  json?: boolean;
-  verbose?: boolean;
-}
-
-/**
- * Get a single object by ID or name
- */
 async function getAction(
   typeInput: string,
   identifier: string,
   options: GetOptions,
 ): Promise<void> {
-  // Get API key
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  // Get default space
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
+  const { client, spaceId } = createAuthenticatedClient();
 
   // Resolve type alias
   const typeKey = config.resolveAlias(typeInput);
-
-  // Fetch object
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
 
   // Try to fetch by ID first (with markdown format to include body)
   let object;
@@ -63,7 +45,7 @@ async function getAction(
     // If not found by ID, try to find by name
     const objects = await client.getObjects(spaceId, {
       type_key: typeKey,
-      limit: 100,
+      limit: NAME_LOOKUP_LIMIT,
     });
 
     const found = objects.find((obj) => obj.name === identifier);
@@ -76,7 +58,7 @@ async function getAction(
   }
 
   // Resolve object names for object-type properties (e.g., team_member_rel → actual name)
-  const objectNames = new Map<string, string>();
+  let objectNames = new Map<string, string>();
   if (!options.json && object.properties) {
     const objectIds = new Set<string>();
     for (const prop of object.properties) {
@@ -86,18 +68,7 @@ async function getAction(
         }
       }
     }
-    if (objectIds.size > 0) {
-      await Promise.all(
-        [...objectIds].map(async (id) => {
-          try {
-            const resolved = await client.getObject(spaceId, id);
-            objectNames.set(id, resolved.name);
-          } catch {
-            // Keep ID as fallback if object can't be resolved
-          }
-        }),
-      );
-    }
+    objectNames = await resolveObjectNames(client, spaceId, objectIds);
   }
 
   // Output results

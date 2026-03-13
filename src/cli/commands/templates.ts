@@ -1,16 +1,18 @@
 import { Command } from 'commander';
-import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
-import { ConfigError, handleError } from '../../utils/errors.js';
+import { handleError } from '../../utils/errors.js';
 import {
   formatAsJson,
   formatTemplatesAsMarkdown,
   formatTemplateDetailAsMarkdown,
 } from '../output.js';
+import { createAuthenticatedClient } from './shared.js';
 
-/**
- * Create the `templates` command
- */
+interface TemplatesOptions {
+  json?: boolean;
+  verbose?: boolean;
+}
+
 export function createTemplatesCommand(): Command {
   const command = new Command('templates')
     .description('List templates for a type, or show detail for a specific template')
@@ -32,26 +34,8 @@ export function createTemplatesCommand(): Command {
   return command;
 }
 
-interface TemplatesOptions {
-  json?: boolean;
-  verbose?: boolean;
-}
-
-/**
- * List all templates for a type
- */
 async function templatesAction(typeArg: string, options: TemplatesOptions): Promise<void> {
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
-
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const { client, spaceId } = createAuthenticatedClient();
 
   // Resolve alias and type
   const typeKey = config.resolveAlias(typeArg);
@@ -74,17 +58,7 @@ async function templateDetailAction(
   templateId: string,
   options: TemplatesOptions,
 ): Promise<void> {
-  const apiKey = config.getApiKey();
-  if (!apiKey) {
-    throw new ConfigError('API key not configured. Run `anytype init` first.');
-  }
-
-  const spaceId = config.getDefaultSpace();
-  if (!spaceId) {
-    throw new ConfigError('No default space configured. Run `anytype init` first.');
-  }
-
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const { client, spaceId } = createAuthenticatedClient();
 
   // Resolve alias and type
   const typeKey = config.resolveAlias(typeArg);

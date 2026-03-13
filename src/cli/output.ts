@@ -1,3 +1,10 @@
+import {
+  EMPTY_CELL,
+  DEFAULT_DISPLAY_FIELDS,
+  INLINE_OBJECT_KEY_THRESHOLD,
+  MAX_CELL_LENGTH,
+  MAX_SNIPPET_LENGTH,
+} from '../constants.js';
 import type { AnyObject, ObjectType, SearchResult, TypeProperty } from '../api/types.js';
 
 /**
@@ -30,7 +37,7 @@ function formatIcon(icon: unknown): string {
       return iconObj.name as string;
     }
   }
-  return '-';
+  return EMPTY_CELL;
 }
 
 /**
@@ -54,26 +61,26 @@ function formatPropertyValue(
         const date = new Date(prop.date as string);
         return { name, value: date.toLocaleDateString() };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'number':
       if (prop.number !== undefined && prop.number !== null) {
         return { name, value: String(prop.number) };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'text':
       if (prop.text) {
         return { name, value: prop.text as string };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'select':
       if (prop.select && typeof prop.select === 'object') {
         const select = prop.select as Record<string, unknown>;
-        return { name, value: (select.name as string) || (select.key as string) || '-' };
+        return { name, value: (select.name as string) || (select.key as string) || EMPTY_CELL };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'multi_select':
       if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
@@ -82,7 +89,7 @@ function formatPropertyValue(
         );
         return { name, value: tags.join(', ') };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'objects':
       if (Array.isArray(prop.objects) && prop.objects.length > 0) {
@@ -95,7 +102,7 @@ function formatPropertyValue(
         const count = prop.objects.length;
         return { name, value: `${count} object${count > 1 ? 's' : ''}` };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'checkbox':
       return { name, value: prop.checkbox ? 'Yes' : 'No' };
@@ -104,23 +111,22 @@ function formatPropertyValue(
       if (prop.url) {
         return { name, value: prop.url as string };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'email':
       if (prop.email) {
         return { name, value: prop.email as string };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     case 'phone':
       if (prop.phone) {
         return { name, value: prop.phone as string };
       }
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
 
     default:
-      // Unknown format, try to extract something useful
-      return { name, value: '-' };
+      return { name, value: EMPTY_CELL };
   }
 }
 
@@ -161,7 +167,7 @@ function formatValue(value: unknown, indent = 0): string {
       return '{}';
     }
     // For objects with just a few keys, show inline
-    if (keys.length <= 3) {
+    if (keys.length <= INLINE_OBJECT_KEY_THRESHOLD) {
       const parts = keys
         .filter((k) => obj[k] !== undefined && obj[k] !== null)
         .map((k) => `${k}: ${formatValue(obj[k], indent + 1)}`);
@@ -212,7 +218,7 @@ const COMPUTED_FIELDS: Record<string, (obj: AnyObject) => number> = {
  * Truncate a cell value for markdown table display.
  * Collapses newlines, escapes pipe chars, and truncates to maxLength.
  */
-export function truncateCell(value: string, maxLength = 80): string {
+export function truncateCell(value: string, maxLength = MAX_CELL_LENGTH): string {
   // Collapse newlines into spaces
   let result = value.replace(/\n/g, ' ').trim();
   // Escape pipe chars to prevent breaking markdown tables
@@ -224,6 +230,20 @@ export function truncateCell(value: string, maxLength = 80): string {
 }
 
 /**
+ * Find a property in an object's properties array by key or name (case-insensitive).
+ */
+function findPropertyByField(
+  properties: AnyObject['properties'],
+  field: string,
+): (typeof properties extends Array<infer T> ? T : never) | undefined {
+  if (!properties) return undefined;
+  const fieldLower = field.toLowerCase();
+  return properties.find(
+    (p) => p.key?.toLowerCase() === fieldLower || p.name?.toLowerCase() === fieldLower,
+  );
+}
+
+/**
  * Resolve a field value from an object, checking computed fields first,
  * then top-level keys, then falling back to the properties array (matched by key or name).
  */
@@ -232,12 +252,10 @@ export function resolveFieldValue(
   field: string,
   objectNames?: Map<string, string>,
 ): string {
-  // Check computed fields first
   if (field in COMPUTED_FIELDS) {
     return String(COMPUTED_FIELDS[field](obj));
   }
 
-  // Check top-level keys first
   const topLevel = (obj as Record<string, unknown>)[field];
   if (topLevel !== undefined && topLevel !== null) {
     const formatted = formatValue(topLevel);
@@ -248,24 +266,13 @@ export function resolveFieldValue(
     return singleLine;
   }
 
-  // Search in properties array by key or name (case-insensitive)
-  if (obj.properties) {
-    const fieldLower = field.toLowerCase();
-    const prop = obj.properties.find(
-      (p) => p.key?.toLowerCase() === fieldLower || p.name?.toLowerCase() === fieldLower,
-    );
-    if (prop) {
-      const formatted = formatPropertyValue(
-        prop as unknown as Record<string, unknown>,
-        objectNames,
-      );
-      if (formatted) {
-        return formatted.value;
-      }
-    }
+  const prop = findPropertyByField(obj.properties, field);
+  if (prop) {
+    const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>, objectNames);
+    if (formatted) return formatted.value;
   }
 
-  return '-';
+  return EMPTY_CELL;
 }
 
 /**
@@ -273,7 +280,6 @@ export function resolveFieldValue(
  * Returns Date for date fields, number for number fields, string for text, null for empty.
  */
 export function resolveRawFieldValue(obj: AnyObject, field: string): Date | number | string | null {
-  // Check computed fields first
   if (field in COMPUTED_FIELDS) {
     return COMPUTED_FIELDS[field](obj);
   }
@@ -288,7 +294,6 @@ export function resolveRawFieldValue(obj: AnyObject, field: string): Date | numb
     return null;
   }
 
-  // Check other top-level keys
   const topLevel = (obj as unknown as Record<string, unknown>)[field];
   if (topLevel !== undefined && topLevel !== null) {
     if (typeof topLevel === 'number') return topLevel;
@@ -296,45 +301,37 @@ export function resolveRawFieldValue(obj: AnyObject, field: string): Date | numb
     return String(topLevel);
   }
 
-  // Search in properties array by key or name (case-insensitive)
-  if (obj.properties) {
-    const fieldLower = field.toLowerCase();
-    const prop = obj.properties.find(
-      (p) => p.key?.toLowerCase() === fieldLower || p.name?.toLowerCase() === fieldLower,
-    );
-    if (prop) {
-      const format = prop.format;
-      switch (format) {
-        case 'date':
-          if (prop.date) {
-            const date = new Date(prop.date);
-            if (!isNaN(date.getTime())) return date;
-          }
-          return null;
-        case 'number':
-          if (prop.number !== undefined && prop.number !== null) return prop.number;
-          return null;
-        case 'text':
-          return prop.text || null;
-        case 'select':
-          if (prop.select && typeof prop.select === 'object') {
-            return ((prop.select as Record<string, unknown>).name as string) || null;
-          }
-          return null;
-        case 'multi_select':
-          if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
-            return prop.multi_select
-              .map((t: Record<string, unknown>) => t.name as string)
-              .join(', ');
-          }
-          return null;
-        case 'checkbox':
-          return (prop as unknown as Record<string, unknown>).checkbox ? 1 : 0;
-        default: {
-          const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>);
-          if (formatted && formatted.value !== '-') return formatted.value;
-          return null;
+  const prop = findPropertyByField(obj.properties, field);
+  if (prop) {
+    const format = prop.format;
+    switch (format) {
+      case 'date':
+        if (prop.date) {
+          const date = new Date(prop.date);
+          if (!isNaN(date.getTime())) return date;
         }
+        return null;
+      case 'number':
+        if (prop.number !== undefined && prop.number !== null) return prop.number;
+        return null;
+      case 'text':
+        return prop.text || null;
+      case 'select':
+        if (prop.select && typeof prop.select === 'object') {
+          return ((prop.select as Record<string, unknown>).name as string) || null;
+        }
+        return null;
+      case 'multi_select':
+        if (Array.isArray(prop.multi_select) && prop.multi_select.length > 0) {
+          return prop.multi_select.map((t: Record<string, unknown>) => t.name as string).join(', ');
+        }
+        return null;
+      case 'checkbox':
+        return (prop as unknown as Record<string, unknown>).checkbox ? 1 : 0;
+      default: {
+        const formatted = formatPropertyValue(prop as unknown as Record<string, unknown>);
+        if (formatted && formatted.value !== EMPTY_CELL) return formatted.value;
+        return null;
       }
     }
   }
@@ -355,7 +352,7 @@ export function formatObjectsAsMarkdown(
   }
 
   // Default fields if not specified
-  const displayFields = fields || ['name', 'id', 'created_at', 'updated_at'];
+  const displayFields = fields || DEFAULT_DISPLAY_FIELDS;
 
   // Build header
   const headers = displayFields.map((f) => {
@@ -540,7 +537,7 @@ export function formatSearchResultsAsMarkdown(results: SearchResult[]): string {
   for (const result of results) {
     lines.push(`- **${result.name}** (\`${result.id}\`)`);
     if (result.snippet) {
-      lines.push(`  > ${result.snippet.substring(0, 80)}...`);
+      lines.push(`  > ${result.snippet.substring(0, MAX_SNIPPET_LENGTH)}...`);
     }
     if (result.type_key) {
       lines.push(`  *Type: ${result.type_key}*`);

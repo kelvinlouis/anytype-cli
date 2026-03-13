@@ -10,57 +10,53 @@ export const EXIT_CODES = {
   VALIDATION_ERROR: 5,
 } as const;
 
+interface CLIErrorOptions {
+  exitCode?: number;
+  verbose?: boolean;
+  cause?: Error;
+}
+
 /**
  * Custom error class for CLI errors
  */
 export class CLIError extends Error {
-  constructor(
-    message: string,
-    public exitCode: number = EXIT_CODES.GENERAL_ERROR,
-    public verbose?: boolean,
-    public cause?: Error,
-  ) {
+  public exitCode: number;
+  public verbose?: boolean;
+  public override cause?: Error;
+
+  constructor(message: string, options: CLIErrorOptions = {}) {
     super(message);
     this.name = 'CLIError';
+    this.exitCode = options.exitCode ?? EXIT_CODES.GENERAL_ERROR;
+    this.verbose = options.verbose;
+    this.cause = options.cause;
   }
 }
 
-/**
- * Configuration error (missing API key, invalid config)
- */
 export class ConfigError extends CLIError {
   constructor(message: string, cause?: Error) {
-    super(message, EXIT_CODES.CONFIG_ERROR, undefined, cause);
+    super(message, { exitCode: EXIT_CODES.CONFIG_ERROR, cause });
     this.name = 'ConfigError';
   }
 }
 
-/**
- * Connection error (Anytype not running)
- */
 export class ConnectionError extends CLIError {
   constructor(message: string, cause?: Error) {
-    super(message, EXIT_CODES.CONNECTION_ERROR, undefined, cause);
+    super(message, { exitCode: EXIT_CODES.CONNECTION_ERROR, cause });
     this.name = 'ConnectionError';
   }
 }
 
-/**
- * Not found error (object, type, or space doesn't exist)
- */
 export class NotFoundError extends CLIError {
   constructor(message: string, cause?: Error) {
-    super(message, EXIT_CODES.NOT_FOUND, undefined, cause);
+    super(message, { exitCode: EXIT_CODES.NOT_FOUND, cause });
     this.name = 'NotFoundError';
   }
 }
 
-/**
- * Validation error (invalid input)
- */
 export class ValidationError extends CLIError {
   constructor(message: string, cause?: Error) {
-    super(message, EXIT_CODES.VALIDATION_ERROR, undefined, cause);
+    super(message, { exitCode: EXIT_CODES.VALIDATION_ERROR, cause });
     this.name = 'ValidationError';
   }
 }

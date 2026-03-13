@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { config } from './config/index.js';
-import { handleError } from './utils/errors.js';
 import { createInitCommand } from './cli/commands/init.js';
 import { createTypesCommand } from './cli/commands/types.js';
 import { createListCommand } from './cli/commands/list.js';
@@ -14,26 +12,19 @@ import { createAliasCommand } from './cli/commands/alias.js';
 import { createFieldsCommand } from './cli/commands/fields.js';
 import { createTemplatesCommand } from './cli/commands/templates.js';
 
-const packageJson = {
-  version: '1.0.0',
-  description: 'CLI tool for interacting with Anytype objects',
-};
+const CLI_VERSION = '1.0.0';
+const CLI_DESCRIPTION = 'CLI tool for interacting with Anytype objects';
 
 const program = new Command();
 
 program
   .name('anytype')
-  .description(packageJson.description)
-  .version(packageJson.version, '-v, --version', 'Output version number')
+  .description(CLI_DESCRIPTION)
+  .version(CLI_VERSION, '-v, --version', 'Output version number')
   .option('--verbose', 'Show detailed output and errors', false)
   .option('--no-color', 'Disable colored output', false)
   .option('--space <id>', 'Override default space')
-  .option('--dry-run', 'Preview changes without executing', false)
-  .hook('preAction', (thisCommand) => {
-    // Global flag processing can go here
-    const options = thisCommand.opts();
-    // Validate options if needed
-  });
+  .option('--dry-run', 'Preview changes without executing', false);
 
 // Add commands
 program.addCommand(createInitCommand());

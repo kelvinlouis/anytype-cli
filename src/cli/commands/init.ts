@@ -3,9 +3,11 @@ import { AnytypeClient } from '../../api/client.js';
 import { config } from '../../config/index.js';
 import { ConfigError, handleError } from '../../utils/errors.js';
 
-/**
- * Create the `init` command
- */
+interface InitOptions {
+  apiKey?: string;
+  verbose?: boolean;
+}
+
 export function createInitCommand(): Command {
   const command = new Command('init')
     .description('Initialize Anytype CLI with API key and default space')
@@ -21,14 +23,6 @@ export function createInitCommand(): Command {
   return command;
 }
 
-interface InitOptions {
-  apiKey?: string;
-  verbose?: boolean;
-}
-
-/**
- * Initialize CLI configuration
- */
 async function initAction(options: InitOptions): Promise<void> {
   let apiKey = options.apiKey;
 

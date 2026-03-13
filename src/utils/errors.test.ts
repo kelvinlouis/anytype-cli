@@ -10,12 +10,27 @@ import {
 
 describe('Error Classes', () => {
   describe('EXIT_CODES', () => {
-    it('should have correct exit code values', () => {
+    it('should define SUCCESS as 0', () => {
       expect(EXIT_CODES.SUCCESS).toBe(0);
+    });
+
+    it('should define GENERAL_ERROR as 1', () => {
       expect(EXIT_CODES.GENERAL_ERROR).toBe(1);
+    });
+
+    it('should define CONFIG_ERROR as 2', () => {
       expect(EXIT_CODES.CONFIG_ERROR).toBe(2);
+    });
+
+    it('should define CONNECTION_ERROR as 3', () => {
       expect(EXIT_CODES.CONNECTION_ERROR).toBe(3);
+    });
+
+    it('should define NOT_FOUND as 4', () => {
       expect(EXIT_CODES.NOT_FOUND).toBe(4);
+    });
+
+    it('should define VALIDATION_ERROR as 5', () => {
       expect(EXIT_CODES.VALIDATION_ERROR).toBe(5);
     });
   });
@@ -29,13 +44,13 @@ describe('Error Classes', () => {
     });
 
     it('should create a CLI error with custom exit code', () => {
-      const error = new CLIError('Test error', 42);
+      const error = new CLIError('Test error', { exitCode: 42 });
       expect(error.exitCode).toBe(42);
     });
 
     it('should store cause error', () => {
       const cause = new Error('Original error');
-      const error = new CLIError('Test error', EXIT_CODES.GENERAL_ERROR, true, cause);
+      const error = new CLIError('Test error', { exitCode: EXIT_CODES.GENERAL_ERROR, cause });
       expect(error.cause).toBe(cause);
     });
   });
