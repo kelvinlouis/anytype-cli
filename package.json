@@ -1,5 +1,6 @@
 {
-  "name": "@anytype/cli",
+  "name": "anytype-cli",
+  "private": true,
   "version": "1.0.0",
   "description": "CLI tool for interacting with Anytype objects",
   "main": "./dist/index.js",
