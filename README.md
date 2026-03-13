@@ -9,7 +9,7 @@ The executable for this CLI is **`anyt`** (not `anytype`) to avoid clashing with
 ## Prerequisites
 
 - Node.js 24+
-- [Anytype Desktop](https://anytype.io/) running (exposes local API on `http://127.0.0.1:31009`)
+- [Anytype Desktop](https://anytype.io/) or the [Anytype headless server](https://github.com/anyproto/anytype-cli) running (default API at `http://127.0.0.1:31009`)
 - An API key from Anytype Desktop settings
 
 ## Installation
@@ -19,16 +19,20 @@ This package is not published to npm — `npm install -g anytype-cli` will not w
 ## Getting Started
 
 ```bash
+# Connect to default localhost:31009
 anyt init --api-key <your_key>
+
+# Connect to a custom server (e.g. headless Anytype on another host)
+anyt init --api-key <your_key> --url http://192.168.1.100:31009
 ```
 
-This saves your API key and lets you select a default space.
+This saves your API key (and optionally the server URL) and sets a default space.
 
 ## Commands
 
 | Command     | Description                                          |
 | ----------- | ---------------------------------------------------- |
-| `init`      | Configure API key and default space                  |
+| `init`      | Configure API key, server URL, and default space     |
 | `types`     | List or inspect object types                         |
 | `list`      | List objects by type (with filtering, sorting, etc.) |
 | `get`       | Fetch a single object with full details              |

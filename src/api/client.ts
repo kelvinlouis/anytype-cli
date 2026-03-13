@@ -83,7 +83,7 @@ export class AnytypeClient {
 
       if (error instanceof TypeError) {
         throw new ConnectionError(
-          `Failed to connect to Anytype. Ensure Anytype is running on ${DEFAULT_BASE_URL}`,
+          `Failed to connect to Anytype. Ensure Anytype is running on ${this.baseURL}`,
           error as Error,
         );
       }

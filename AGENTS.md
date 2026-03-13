@@ -17,6 +17,10 @@ Before running any npm commands, ensure the correct Node.js version is active by
 
 After a significant change to the codebase, run `npm test` to verify all tests pass, then run `npm run build` to ensure the project compiles successfully.
 
+## Documentation
+
+When adding, removing, or changing CLI commands, options, or flags, update `README.md` to reflect those changes. Keep the command table, usage examples, and configuration section in sync with the actual CLI behavior.
+
 ## Code Quality
 
 - Write small, focused functions that do one thing (Single Responsibility)
@@ -66,7 +70,7 @@ Rules:
 
 ## Architecture
 
-**CLI tool for the Anytype local API** (`http://127.0.0.1:31009`). Anytype Desktop must be running. Auth via `Authorization: Bearer <api_key>` header. ESM throughout (`"type": "module"`).
+**CLI tool for the Anytype local API** (default `http://127.0.0.1:31009`, configurable via `anyt init --url`). Anytype Desktop or the headless server must be running. Auth via `Authorization: Bearer <api_key>` header. ESM throughout (`"type": "module"`).
 
 ### Entry Point & Command Registration
 

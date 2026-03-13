@@ -5,6 +5,7 @@ import { ConfigError, handleError } from '../../utils/errors.js';
 
 interface InitOptions {
   apiKey?: string;
+  url?: string;
   verbose?: boolean;
 }
 
@@ -12,6 +13,7 @@ export function createInitCommand(): Command {
   const command = new Command('init')
     .description('Initialize Anytype CLI with API key and default space')
     .option('--api-key <key>', 'API key (will prompt if not provided)')
+    .option('--url <url>', 'Server URL (default: http://127.0.0.1:31009)')
     .action(async (options) => {
       try {
         await initAction(options);
@@ -33,8 +35,21 @@ async function initAction(options: InitOptions): Promise<void> {
     );
   }
 
+  // Determine and persist base URL
+  if (options.url) {
+    const url = options.url.replace(/\/+$/, '');
+    try {
+      new URL(url);
+    } catch {
+      throw new ConfigError('Invalid URL. Provide a valid URL like http://host:port');
+    }
+    config.setBaseURL(url);
+  }
+
+  const baseURL = config.getBaseURL();
+
   // Validate API key by calling /v1/spaces
-  const client = new AnytypeClient(config.getBaseURL(), apiKey);
+  const client = new AnytypeClient(baseURL, apiKey);
 
   console.log('Validating API key...');
   const spaces = await client.getSpaces();
@@ -65,6 +80,7 @@ async function initAction(options: InitOptions): Promise<void> {
   };
   config.setAliases(defaultAliases);
 
+  console.log(`✓ Server URL: ${baseURL}`);
   console.log('✓ Configuration saved successfully');
   console.log(`✓ Found ${spaces.length} space(s)`);
   console.log('✓ Default aliases configured');
