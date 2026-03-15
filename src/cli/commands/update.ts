@@ -5,6 +5,7 @@ import { resolveLinkProperty } from '../../utils/links.js';
 import {
   collectProperty,
   toPropertyPayloads,
+  resolvePropertyIds,
   resolveTagProperties,
 } from '../../utils/properties.js';
 import type { ParsedProperty } from '../../utils/properties.types.js';
@@ -127,6 +128,7 @@ async function updateAction(identifier: string, options: UpdateOptions): Promise
     let properties = toPropertyPayloads(options.property, propertySchema);
     if (typeProperties) {
       properties = await resolveTagProperties(properties, typeProperties, client, spaceId);
+      properties = resolvePropertyIds(properties, typeProperties);
     }
     updateData.properties = properties;
   }

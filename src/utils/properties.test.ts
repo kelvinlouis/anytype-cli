@@ -350,7 +350,7 @@ describe('resolveTagProperties', () => {
       client,
       'space-1',
     );
-    expect(result).toEqual([{ key: 'rating', select: 'tag-id-5' }]);
+    expect(result).toEqual([{ key: 'rating', format: 'select', select: 'tag-id-5' }]);
   });
 
   it('should resolve select tag by id', async () => {
@@ -361,7 +361,7 @@ describe('resolveTagProperties', () => {
       client,
       'space-1',
     );
-    expect(result).toEqual([{ key: 'rating', select: 'tag-id-1' }]);
+    expect(result).toEqual([{ key: 'rating', format: 'select', select: 'tag-id-1' }]);
   });
 
   it('should resolve select tag by key', async () => {
@@ -372,7 +372,7 @@ describe('resolveTagProperties', () => {
       client,
       'space-1',
     );
-    expect(result).toEqual([{ key: 'rating', select: 'tag-id-5' }]);
+    expect(result).toEqual([{ key: 'rating', format: 'select', select: 'tag-id-5' }]);
   });
 
   it('should throw for invalid select value with available options', async () => {
@@ -397,7 +397,7 @@ describe('resolveTagProperties', () => {
       client,
       'space-1',
     );
-    expect(result).toEqual([{ key: 'tag', multi_select: ['new-tag-id'] }]);
+    expect(result).toEqual([{ key: 'tag', format: 'multi_select', multi_select: ['new-tag-id'] }]);
     expect(client.createTag).toHaveBeenCalled();
   });
 

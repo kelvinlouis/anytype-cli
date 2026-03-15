@@ -6,6 +6,7 @@ import { resolveLinkProperty } from '../../utils/links.js';
 import {
   collectProperty,
   toPropertyPayloads,
+  resolvePropertyIds,
   resolveTagProperties,
 } from '../../utils/properties.js';
 import type { ParsedProperty } from '../../utils/properties.types.js';
@@ -132,6 +133,7 @@ async function createAction(
   // Resolve tag names to IDs for select/multi_select properties
   if (typeProperties) {
     properties = await resolveTagProperties(properties, typeProperties, client, spaceId);
+    properties = resolvePropertyIds(properties, typeProperties);
   }
 
   // Build data object

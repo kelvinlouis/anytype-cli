@@ -154,6 +154,27 @@ export function toPropertyPayloads(
 }
 
 /**
+ * Replace property keys with their type-scoped IDs.
+ *
+ * When a space has multiple properties sharing the same key (e.g. two "author"
+ * properties), the API may resolve the key to the wrong one. By sending the
+ * property ID (from the type definition) as the key, we ensure the correct
+ * property is targeted.
+ */
+export function resolvePropertyIds(
+  payloads: PropertyPayload[],
+  typeProperties: TypeProperty[],
+): PropertyPayload[] {
+  return payloads.map((p) => {
+    const typeProp = typeProperties.find((tp) => tp.key === p.key);
+    if (typeProp) {
+      return { ...p, key: typeProp.id };
+    }
+    return p;
+  });
+}
+
+/**
  * Resolve tag names to IDs for select/multi_select properties.
  *
  * For each select/multi_select property in the payloads, looks up existing tags
@@ -198,7 +219,7 @@ export async function resolveTagProperties(
             `Available options: ${available || '(none)'}`,
         );
       }
-      result.push({ key: payload.key, select: tagId });
+      result.push({ key: payload.key, format: 'select', select: tagId });
     } else {
       const tagNames = payload.multi_select as string[];
       const tagIds: string[] = [];
@@ -209,7 +230,7 @@ export async function resolveTagProperties(
           existingTags.push({ id: tagId, name: tagName });
         }
       }
-      result.push({ key: payload.key, multi_select: tagIds });
+      result.push({ key: payload.key, format: 'multi_select', multi_select: tagIds });
     }
   }
 
