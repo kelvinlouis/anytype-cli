@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "CLI tool for interacting with Anytype objects",
   "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "bin": {
     "anyt": "./dist/index.js"
