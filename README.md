@@ -2,9 +2,9 @@
 
 A command-line interface built around the [Anytype](https://anytype.io/) local API.
 
-> **Note:** This is a personal/internal tool and is not published to npm. It is built around the author's own types and workflows and may not cover all Anytype features or use cases.
-
 The executable for this CLI is **`anyt`** (not `anytype`) to avoid clashing with the official [anytype-cli](https://github.com/anyproto/anytype-cli).
+
+> **Note:** This tool is built around the author's own types and workflows and may not cover all Anytype features or use cases.
 
 ## Prerequisites
 
@@ -14,7 +14,9 @@ The executable for this CLI is **`anyt`** (not `anytype`) to avoid clashing with
 
 ## Installation
 
-This package is not published to npm — `npm install -g anytype-cli` will not work. To install, clone the repo and link it locally. See [Contributing](#contributing) for instructions.
+```bash
+npm install -g @kelvinlouis/anytype-cli
+```
 
 ## Getting Started
 
